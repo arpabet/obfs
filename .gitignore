@@ -1,0 +1,12 @@
+# Binaries and build output
+*.exe
+*.test
+*.out
+/dist/
+
+# Go workspace files
+go.work
+go.work.sum
+
+.idea/
+

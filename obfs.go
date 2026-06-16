@@ -9,15 +9,13 @@
 // network observer cannot fingerprint an application's operations by their packet
 // sizes and timing.
 //
-// This is the PUBLIC STUB build: it presents the exact same API as the full
-// implementation but performs NO shaping — Wrap/Listener/Dialer return the base
-// connection unchanged, the samplers/fills are trivial. It exists so open-source
-// consumers (e.g. servion/vrpc) compile and run against a stable, zero-dependency
-// surface; the real shaper is a drop-in replacement under the same module path.
-//
-// It is deliberately transport- and protocol-neutral (it depends on nothing
-// outside the standard library), so it composes with value-rpc, gRPC, plain
-// net/http, or anything else that hands it a net.Conn:
+// It exists because content encryption (TLS) hides *what* you send but not the
+// *size and timing* of each message — and per-operation size/timing is often
+// enough to identify "which request ran" or "which page loaded". A fixed-cell
+// shaper makes every write look identical on the wire, the same idea behind Tor's
+// 514-byte cells. obfs is deliberately transport- and protocol-neutral (it depends
+// on nothing outside the standard library), so it composes with value-rpc, gRPC,
+// plain net/http, or anything else that hands it a net.Conn:
 //
 //	// Client: shape a base connection, then run any protocol over it.
 //	shaped := obfs.Wrap(baseConn, obfs.Policy{CellSize: 512})
@@ -99,10 +97,8 @@ type Policy struct {
 // zero policy (CellSize <= 2 and no SizeSampler) base is returned unchanged.
 //
 // The shaper adds no encryption: compose it under TLS. Apply it symmetrically.
-//
-// STUB: this build performs no shaping and always returns base unchanged.
 func Wrap(base net.Conn, p Policy) net.Conn {
-	return base
+	return newShapedConn(base, p)
 }
 
 // Dialer wraps a base dial function so every connection it returns is shaped per
@@ -119,8 +115,19 @@ func Dialer(dial func() (net.Conn, error), p Policy) func() (net.Conn, error) {
 }
 
 // Listener wraps a base net.Listener so every accepted connection is shaped per p.
-//
-// STUB: this build performs no shaping and returns base unchanged.
 func Listener(base net.Listener, p Policy) net.Listener {
-	return base
+	return &shapedListener{Listener: base, policy: p}
+}
+
+type shapedListener struct {
+	net.Listener
+	policy Policy
+}
+
+func (l *shapedListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return Wrap(c, l.policy), nil
 }

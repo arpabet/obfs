@@ -1,0 +1,150 @@
+name: obfs CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: [ '1.25.x', '1.26.x' ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race -cover ./...
+
+  # tlscamo is a separate module (go.arpabet.com/obfs/tlscamo) so its uTLS
+  # dependency stays out of the zero-dep core; it gets its own job.
+  tlscamo:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: [ '1.25.x', '1.26.x' ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Build
+        working-directory: tlscamo
+        run: go build ./...
+
+      - name: Vet
+        working-directory: tlscamo
+        run: go vet ./...
+
+      - name: Test
+        working-directory: tlscamo
+        run: go test -race -cover ./...
+
+  # reality is a separate module (go.arpabet.com/obfs/reality) reusing tlscamo for
+  # the client fingerprint; it gets its own job.
+  reality:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: [ '1.25.x', '1.26.x' ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Build
+        working-directory: reality
+        run: go build ./...
+
+      - name: Vet
+        working-directory: reality
+        run: go vet ./...
+
+      - name: Test
+        working-directory: reality
+        run: go test -race -cover ./...
+
+  # webrtc is a separate module (go.arpabet.com/obfs/webrtc) so the heavy pion tree
+  # stays out of the core; it gets its own job.
+  webrtc:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: [ '1.25.x', '1.26.x' ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Build
+        working-directory: webrtc
+        run: go build ./...
+
+      - name: Vet
+        working-directory: webrtc
+        run: go vet ./...
+
+      - name: Test
+        working-directory: webrtc
+        run: go test -race -cover ./...
+
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+
+      # Smoke-run benchmarks a few iterations so they keep compiling and running.
+      - name: Benchmarks
+        run: go test -run='^$' -bench=. -benchmem -benchtime=20x ./...
+
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+      - name: govulncheck (tlscamo submodule)
+        working-directory: tlscamo
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+      - name: govulncheck (reality submodule)
+        working-directory: reality
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+      - name: govulncheck (webrtc submodule)
+        working-directory: webrtc
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
