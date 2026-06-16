@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# Keep go.arpabet.com modules off Google's public module proxy/checksum DB:
+# GOPRIVATE expands to GONOPROXY + GONOSUMDB, so these modules are fetched
+# directly from source and not cached by proxy.golang.org / sum.golang.org.
+env:
+  GOPRIVATE: go.arpabet.com/*
+
 jobs:
   build:
     runs-on: ubuntu-latest
