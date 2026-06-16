@@ -49,7 +49,7 @@ combine the layers that match your adversary.
 | `obfs` | fixed-cell shaper (`Wrap`), length padding, timing jitter, cover traffic, pluggable `Fill` (random / printable / zero), **distribution-matching morpher** (`SizeSampler`/`DelaySampler`), **FRONT adaptive padding** (`Front`), and **datagram obfuscation** for UDP/QUIC (`WrapPacket`) | stdlib only |
 | `obfs/hop` | port/address hopping — client rotates destinations on a time schedule, server listens on all of them | stdlib only |
 | `obfs/tlscamo` | **uTLS ClientHello mimicry** — TLS client whose JA3/JA4 matches a real browser, with ALPN, fingerprint rotation, and optional **Encrypted ClientHello (ECH)** to hide the SNI (separate module) | `refraction-networking/utls` |
-| `obfs/reality` | **Trojan-style active-probe defense** — token-authenticated TLS tunnel; unauthenticated probes are reverse-proxied to a real fallback site (separate module) | `obfs/tlscamo` (→ utls) |
+| `obfs/reality` | **Trojan-style active-probe defense** — token-authenticated TLS tunnel; unauthenticated probes are reverse-proxied to a real fallback site, plus optional **SNI-passthrough** (wrong-SNI scanners get raw-spliced to a real upstream's genuine cert) (separate module) | `obfs/tlscamo` (→ utls) |
 | `obfs/webrtc` | **Snowflake-style WebRTC data channel** — carry a `net.Conn` over a WebRTC data channel (looks like a call); pluggable signaling, no built-in broker (separate module) | `pion/webrtc` |
 
 ## Install
@@ -220,6 +220,12 @@ This is Trojan-grade (server presents its own cert) — not the full Xray REALIT
 (which borrows an unrelated site's cert); see the package doc. With **servion**,
 point `Fallback` at the HTTP server servion already runs, so the decoy is real.
 
+Set `ServerNames` + `Passthrough` to additionally peek each ClientHello and
+raw-splice any connection whose SNI doesn't match to a real TLS upstream, so
+IP-range scanners using the wrong SNI see that upstream's genuine certificate, not
+yours. The full REALITY protocol — and how it would be built across obfs, servion,
+and value-rpc — is designed in [REALITY.md](REALITY.md).
+
 ### WebRTC data channel (`obfs/webrtc`)
 
 Carry the connection over a WebRTC data channel so it looks like a call (the
@@ -319,7 +325,7 @@ discipline `value-rpc/quic` uses for `quic-go`):
 - ✅ `obfs` core — fixed-cell shaper + **distribution-matching morpher** (`SizeSampler`/`DelaySampler`), **FRONT adaptive padding** + **RegulaTor-style pacing** (`Paced`), cover traffic, fills, and **datagram obfuscation** (`WrapPacket`) for UDP/QUIC — zero deps.
 - ✅ `obfs/hop` — port/address hopping — zero deps.
 - ✅ `obfs/tlscamo` — uTLS ClientHello mimicry + ALPN + fingerprint rotation + optional ECH (SNI encryption).
-- ✅ `obfs/reality` — Trojan-style active-probe defense (token auth + fallback).
+- ✅ `obfs/reality` — Trojan-style active-probe defense (token auth + fallback + optional SNI-passthrough). Full REALITY design: [REALITY.md](REALITY.md).
 - ✅ `obfs/webrtc` — Snowflake-style WebRTC data-channel transport.
 
 Composition (the layers stack; apply from the wire inward): port hopping →

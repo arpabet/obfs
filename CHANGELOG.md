@@ -30,6 +30,13 @@ module a change applies to.
   paced out, idle slots are filled with cover, and `Write` back-pressures to the rate
   (Holland & Hopper, PETS 2022). Supersedes `CoverEvery`/`Front`; `Close` flushes the
   queue.
+- **SNI-passthrough** in `obfs/reality` (`ServerConfig.ServerNames` + `Passthrough`)
+  — the listener peeks each ClientHello and raw-splices any connection whose SNI does
+  not match to a real TLS upstream, so probes/IP-range scanners using the wrong (or
+  no) SNI terminate TLS against that upstream's genuine certificate instead of the
+  server's. A step toward REALITY-style probe resistance without TLS-stack surgery.
+- **REALITY.md** design doc — how full Xray REALITY would be implemented across
+  `obfs` (protocol), `servion` (control plane), and `value-rpc` (unchanged).
 - **LICENSE** file (BUSL-1.1, Change License MPL 2.0) at the repository root,
   matching the rest of the `go.arpabet.com` family. All source headers already
   declared `SPDX-License-Identifier: BUSL-1.1`; the file was previously missing.

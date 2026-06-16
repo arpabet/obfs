@@ -6,6 +6,7 @@
 package reality_test
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -76,17 +77,48 @@ func fallbackServer(t *testing.T, body string) string {
 	return ln.Addr().String()
 }
 
+// tlsUpstream is a real TLS server (its own cert) that echoes a fixed body — the
+// "real site" that non-matching-SNI probes get raw-spliced to.
+func tlsUpstream(t *testing.T, body string) (addr string, cert tls.Certificate) {
+	t.Helper()
+	cert, _ = genCert(t)
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{cert}})
+	if err != nil {
+		t.Fatalf("upstream listen: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				buf := make([]byte, 256)
+				_, _ = c.Read(buf)
+				_, _ = c.Write([]byte(body))
+			}(c)
+		}
+	}()
+	return ln.Addr().String(), cert
+}
+
 func realityServer(t *testing.T, cert tls.Certificate, token []byte, fallback string) net.Listener {
+	return realityServerCfg(t, reality.ServerConfig{
+		TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}},
+		Token:     token,
+		Fallback:  fallback,
+	})
+}
+
+func realityServerCfg(t *testing.T, cfg reality.ServerConfig) net.Listener {
 	t.Helper()
 	base, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	rl := reality.Listener(base, reality.ServerConfig{
-		TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}},
-		Token:     token,
-		Fallback:  fallback,
-	})
+	rl := reality.Listener(base, cfg)
 	t.Cleanup(func() { rl.Close() })
 	go func() {
 		for {
@@ -152,6 +184,86 @@ func TestReality_ProbeGetsFallback(t *testing.T) {
 	}
 	if string(buf) != body {
 		t.Fatalf("probe got %q, want fallback content %q", buf, body)
+	}
+}
+
+// TestReality_WrongSNIPassthrough: a probe whose ClientHello SNI does not match
+// ServerNames is raw-spliced to the real upstream and terminates TLS against the
+// upstream's genuine certificate — not the reality server's.
+func TestReality_WrongSNIPassthrough(t *testing.T) {
+	cert, _ := genCert(t)
+	const body = "REAL-UPSTREAM"
+	upstreamAddr, upstreamCert := tlsUpstream(t, body)
+
+	rl := realityServerCfg(t, reality.ServerConfig{
+		TLSConfig:   &tls.Config{Certificates: []tls.Certificate{cert}},
+		Token:       []byte("super-secret-tok"),
+		ServerNames: []string{"localhost"},
+		Passthrough: upstreamAddr,
+	})
+
+	// Probe with a non-matching SNI; verification is skipped (a censor wouldn't care).
+	probe, err := tls.Dial("tcp", rl.Addr().String(), &tls.Config{
+		ServerName:         "scanner.example",
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		t.Fatalf("probe dial: %v", err)
+	}
+	defer probe.Close()
+
+	// The certificate the probe sees must be the upstream's, proving raw passthrough.
+	got := probe.ConnectionState().PeerCertificates
+	if len(got) == 0 || !bytes.Equal(got[0].Raw, upstreamCert.Leaf.Raw) {
+		t.Fatal("probe did not terminate TLS against the real upstream certificate")
+	}
+
+	if _, err := probe.Write([]byte("GET / HTTP/1.1\r\n\r\n")); err != nil {
+		t.Fatalf("probe write: %v", err)
+	}
+	buf := make([]byte, len(body))
+	if _, err := io.ReadFull(probe, buf); err != nil {
+		t.Fatalf("probe read: %v", err)
+	}
+	if string(buf) != body {
+		t.Fatalf("probe got %q, want upstream body %q", buf, body)
+	}
+}
+
+// TestReality_MatchingSNIAuthenticates: with SNI passthrough enabled, a client whose
+// SNI matches still flows through the normal TLS-terminating token path (exercises the
+// ClientHello replay into the local TLS server).
+func TestReality_MatchingSNIAuthenticates(t *testing.T) {
+	cert, pool := genCert(t)
+	token := []byte("super-secret-tok")
+	upstreamAddr, _ := tlsUpstream(t, "REAL-UPSTREAM")
+
+	rl := realityServerCfg(t, reality.ServerConfig{
+		TLSConfig:   &tls.Config{Certificates: []tls.Certificate{cert}},
+		Token:       token,
+		ServerNames: []string{"localhost"},
+		Passthrough: upstreamAddr,
+	})
+
+	dial := reality.Dialer("tcp", rl.Addr().String(), reality.ClientConfig{
+		TLS:   tlscamo.Config{ServerName: "localhost", RootCAs: pool},
+		Token: token,
+	})
+	conn, err := dial()
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.Write([]byte("ping")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	buf := make([]byte, 4)
+	if _, err := io.ReadFull(conn, buf); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(buf) != "ping" {
+		t.Fatalf("echo = %q, want ping", buf)
 	}
 }
 
