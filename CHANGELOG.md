@@ -12,6 +12,17 @@ module a change applies to.
 
 ### Added
 
+- **Datagram obfuscation** (`obfs.WrapPacket`, `PacketPolicy`) in the zero-dep core
+  — a Salamander-style (Hysteria2) `net.PacketConn` wrapper that encrypts each
+  datagram under a PSK with a per-datagram salt (AES-256-CTR over
+  `[8B salt][2B len][data][pad]`), so a passive observer sees only pseudo-random
+  packets. An optional `Pad` size sampler grows datagrams to a cover distribution
+  (the datagram analogue of the stream morpher). Pairs with a QUIC transport: wrap
+  the UDP `PacketConn` and hand it to the transport. Obfuscation only — no integrity.
+- **FRONT adaptive padding** (`Policy.Front`, `FrontConfig`) in the core stream
+  shaper — front-loads a randomized budget of dummy cells at Rayleigh-distributed
+  times over a window, blunting website-fingerprinting on the early part of a trace
+  (Gong & Wang, USENIX Security 2020). Sender-side, composes with `CoverEvery`.
 - **LICENSE** file (BUSL-1.1, Change License MPL 2.0) at the repository root,
   matching the rest of the `go.arpabet.com` family. All source headers already
   declared `SPDX-License-Identifier: BUSL-1.1`; the file was previously missing.

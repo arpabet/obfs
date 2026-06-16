@@ -38,7 +38,7 @@ combine the layers that match your adversary.
 
 | Censor move | What it keys on | obfs answer |
 |---|---|---|
-| **Passive DPI / flow analysis** | packet sizes, timing, entropy; TLS JA3/JA4 | core shaper + **morpher** (size/timing distribution), **tlscamo** (browser TLS fingerprint) |
+| **Passive DPI / flow analysis** | packet sizes, timing, entropy; TLS JA3/JA4 | core shaper + **morpher** (size/timing distribution) + **FRONT** (adaptive padding), **tlscamo** (browser TLS fingerprint), **WrapPacket** (UDP/QUIC datagram obfuscation) |
 | **Active probing** | connecting to the server and checking it behaves like its cover story | **reality** — unauthenticated probes are reverse-proxied to a real fallback site |
 | **Endpoint blocking** | a static server IP / port / SNI | **hop** (rotate ports), **webrtc** (peer-to-peer data channel reached via a broker) |
 
@@ -46,7 +46,7 @@ combine the layers that match your adversary.
 
 | Package | What it does | Deps |
 |---------|--------------|------|
-| `obfs` | fixed-cell shaper (`Wrap`), length padding, timing jitter, cover traffic, pluggable `Fill` (random / printable / zero), **distribution-matching morpher** (`SizeSampler`/`DelaySampler`) | stdlib only |
+| `obfs` | fixed-cell shaper (`Wrap`), length padding, timing jitter, cover traffic, pluggable `Fill` (random / printable / zero), **distribution-matching morpher** (`SizeSampler`/`DelaySampler`), **FRONT adaptive padding** (`Front`), and **datagram obfuscation** for UDP/QUIC (`WrapPacket`) | stdlib only |
 | `obfs/hop` | port/address hopping — client rotates destinations on a time schedule, server listens on all of them | stdlib only |
 | `obfs/tlscamo` | **uTLS ClientHello mimicry** — TLS client whose JA3/JA4 matches a real browser, with ALPN, fingerprint rotation, and optional **Encrypted ClientHello (ECH)** to hide the SNI (separate module) | `refraction-networking/utls` |
 | `obfs/reality` | **Trojan-style active-probe defense** — token-authenticated TLS tunnel; unauthenticated probes are reverse-proxied to a real fallback site (separate module) | `obfs/tlscamo` (→ utls) |
@@ -90,6 +90,39 @@ shaped := obfs.Wrap(baseConn, obfs.Policy{
 })
 // obfs.UniformSize(min, max) is the simplest sampler when you have no profile.
 ```
+
+### FRONT adaptive padding
+
+`CoverEvery` is constant-rate chaff sent only while idle. `Front` instead front-loads
+a randomized burst of dummy cells at the start of the connection — where a trace
+leaks the most to website-fingerprinting — at Rayleigh-distributed times. It is
+sender-side and composes with the rest of the policy:
+
+```go
+shaped := obfs.Wrap(baseConn, obfs.Policy{
+    CellSize: 512,
+    Front:    &obfs.FrontConfig{Window: 2 * time.Second, MaxCount: 30}, // up to 30 dummy cells
+})
+```
+
+### Datagram obfuscation (UDP / QUIC)
+
+For datagram carriers, `WrapPacket` obfuscates each UDP datagram (Salamander-style:
+per-packet salt + AES-256-CTR under a PSK), so a censor sees pseudo-random packets
+instead of, say, a QUIC long-header. An optional `Pad` sampler shapes packet
+*lengths* too. Wrap the UDP socket and hand it to a QUIC transport:
+
+```go
+udp, _ := net.ListenPacket("udp", ":0")
+pc := obfs.WrapPacket(udp, obfs.PacketPolicy{
+    Key: psk,                          // same on both peers
+    Pad: obfs.UniformSize(1200, 1400), // optional length shaping
+})
+// give pc to your QUIC transport (e.g. value-rpc/quic); QUIC's TLS rides inside.
+```
+
+It is obfuscation, not a secure channel (unauthenticated AES-CTR — no integrity);
+keep a real tunnel (QUIC's own TLS) inside it.
 
 ### With value-rpc (bring-your-own-connection seam)
 
@@ -267,7 +300,7 @@ The planned techniques are all implemented, each dependency-bearing one as a
 **separate sub-module** so importing the zero-dep core never pulls it in (the same
 discipline `value-rpc/quic` uses for `quic-go`):
 
-- ✅ `obfs` core — fixed-cell shaper + **distribution-matching morpher** (`SizeSampler`/`DelaySampler`), cover traffic, fills — zero deps.
+- ✅ `obfs` core — fixed-cell shaper + **distribution-matching morpher** (`SizeSampler`/`DelaySampler`), **FRONT adaptive padding**, cover traffic, fills, and **datagram obfuscation** (`WrapPacket`) for UDP/QUIC — zero deps.
 - ✅ `obfs/hop` — port/address hopping — zero deps.
 - ✅ `obfs/tlscamo` — uTLS ClientHello mimicry + ALPN + fingerprint rotation + optional ECH (SNI encryption).
 - ✅ `obfs/reality` — Trojan-style active-probe defense (token auth + fallback).

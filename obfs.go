@@ -89,6 +89,29 @@ type Policy struct {
 	// DelaySampler, when non-nil, draws the delay applied before each flush,
 	// overriding Jitter — e.g. PoissonDelay for exponential (less regular) gaps.
 	DelaySampler func() time.Duration
+
+	// Front, when non-nil, enables FRONT-style adaptive cover: at connection start a
+	// random budget of dummy cells is scheduled at times drawn from a Rayleigh
+	// distribution over Front.Window, independent of real traffic. Unlike CoverEvery
+	// (constant-rate, only-when-idle chaff), this front-loads non-deterministic
+	// padding to blunt website-fingerprinting on the early, most-informative part of
+	// a trace. It is applied by the sender, so it need not be symmetric; it composes
+	// with CoverEvery. See FrontConfig.
+	Front *FrontConfig
+}
+
+// FrontConfig parameterizes FRONT-style front-loaded cover padding (Policy.Front).
+// The defense (Gong & Wang, "Zero-delay Lightweight Defenses against Website
+// Fingerprinting", USENIX Security 2020) injects dummy packets whose timestamps are
+// Rayleigh-distributed over a window, concentrating cover where a trace leaks most.
+type FrontConfig struct {
+	// Window is the time span from connection start over which dummy cells are
+	// spread. A non-positive Window disables the defense.
+	Window time.Duration
+
+	// MaxCount caps the dummy-cell budget; the actual count is drawn uniformly from
+	// [1, MaxCount]. A non-positive MaxCount disables the defense.
+	MaxCount int
 }
 
 // Wrap returns base shaped according to p, as a net.Conn. The returned connection

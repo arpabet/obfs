@@ -9,8 +9,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math"
 	"math/rand"
 	"net"
+	"sort"
 	"sync"
 	"time"
 )
@@ -77,6 +79,10 @@ func newShapedConn(base net.Conn, p Policy) net.Conn {
 	if p.CoverEvery > 0 {
 		c.wg.Add(1)
 		go c.coverLoop(p.CoverEvery)
+	}
+	if p.Front != nil && p.Front.Window > 0 && p.Front.MaxCount > 0 {
+		c.wg.Add(1)
+		go c.frontLoop(*p.Front)
 	}
 	return c
 }
@@ -174,6 +180,49 @@ func (c *shapedConn) coverLoop(interval time.Duration) {
 			}
 			c.writeMu.Unlock()
 		}
+	}
+}
+
+// frontLoop implements the FRONT defense: it draws a dummy-cell budget uniformly
+// from [1, MaxCount] and a Rayleigh scale from the window, samples one send time per
+// dummy cell, and emits cover cells at those (sorted) times. It runs once, near the
+// start of the connection, then exits — front-loading non-deterministic padding.
+func (c *shapedConn) frontLoop(cfg FrontConfig) {
+	defer c.wg.Done()
+
+	n := 1 + rand.Intn(cfg.MaxCount)
+	// Rayleigh scale as a random fraction of the window, so the padding mass lands
+	// at a non-deterministic point inside it rather than always early or always late.
+	sigma := float64(cfg.Window) * (0.3 + 0.4*rand.Float64())
+
+	times := make([]time.Duration, n)
+	for i := range times {
+		u := rand.Float64()
+		if u <= 0 {
+			u = math.SmallestNonzeroFloat64
+		}
+		t := time.Duration(sigma * math.Sqrt(-2*math.Log(u))) // Rayleigh sample
+		if t > cfg.Window {
+			t = cfg.Window
+		}
+		times[i] = t
+	}
+	sort.Slice(times, func(i, j int) bool { return times[i] < times[j] })
+
+	start := time.Now()
+	for _, t := range times {
+		timer := time.NewTimer(t - time.Since(start)) // a non-positive delay fires at once
+		select {
+		case <-c.done:
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		c.writeMu.Lock()
+		if _, err := c.base.Write(c.coverCell()); err == nil {
+			c.lastWrite = time.Now()
+		}
+		c.writeMu.Unlock()
 	}
 }
 
