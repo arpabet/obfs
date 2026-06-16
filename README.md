@@ -226,6 +226,35 @@ IP-range scanners using the wrong SNI see that upstream's genuine certificate, n
 yours. The full REALITY protocol — and how it would be built across obfs, servion,
 and value-rpc — is designed in [REALITY.md](REALITY.md).
 
+### REALITY auth core (`obfs/xreality`)
+
+The full REALITY transport's hard part is TLS-stack surgery, which isn't responsibly
+one-shottable. But its security-critical, TLS-independent core is — so `obfs/xreality`
+implements and fully tests exactly that piece, de-risking the rest of Phase 1.
+
+A separate, **stdlib-only, zero-dependency** module:
+
+- `GenerateX25519()` — X25519 keypairs (`crypto/ecdh`).
+- `ClientSessionID(serverPub, clientEphemeral, clientRandom, shortID)` — ECDH →
+  HKDF-SHA256 auth key → AES-256-GCM-sealed 32-byte SessionID (the auth token smuggled
+  in the ClientHello), bound to the ClientHello random as AAD/nonce.
+- `ServerAuthenticate(serverPriv, clientPub, clientRandom, sessionID, accept, skew)` —
+  reconstructs the auth key, AEAD-verifies, enforces the replay window, gates the
+  shortId, and returns the key for the cert binding. Returns a bare `ok bool` so a
+  probe and a malformed client are indistinguishable.
+- `CertHMAC(authKey, ed25519Pub)` — the HMAC-SHA512 cert-binding signature (TLS 1.3
+  encrypts the cert, so only authenticated clients ever see/verify it).
+- `ParseClientHello(record)` + `Authenticate(...)` — the server **decision pipeline**:
+  a strict, bounds-checked ClientHello parser (random / session id / SNI / X25519 share)
+  composed with `ServerAuthenticate` to classify a peeked ClientHello as authenticated
+  (→ terminate) or a probe (→ pass through).
+
+Deliberately **not** wire-compatible with Xray (both peers are ours), so the layout is
+clean: `SessionID = AES-256-GCM(plaintext=[8B time][8B shortId])` exactly filling the
+32-byte field. The crypto core and the server decision pipeline are done; what remains
+is the live TLS plumbing (uTLS ClientHello injection + a forged-certificate TLS path),
+which needs a vendored/forked TLS stack — see [REALITY.md](REALITY.md).
+
 ### WebRTC data channel (`obfs/webrtc`)
 
 Carry the connection over a WebRTC data channel so it looks like a call (the
@@ -326,7 +355,7 @@ discipline `value-rpc/quic` uses for `quic-go`):
 - ✅ `obfs/hop` — port/address hopping — zero deps.
 - ✅ `obfs/tlscamo` — uTLS ClientHello mimicry + ALPN + fingerprint rotation + optional ECH (SNI encryption).
 - ✅ `obfs/reality` — Trojan-style active-probe defense (token auth + fallback + optional SNI-passthrough). Full REALITY design: [REALITY.md](REALITY.md).
-- 🚧 `obfs/xreality` — REALITY **auth crypto core** (X25519/HKDF/AEAD SessionID + cert-binding HMAC), stdlib only; TLS-handshake integration still open — see [REALITY.md](REALITY.md).
+- 🚧 `obfs/xreality` — REALITY **auth crypto core** (X25519/HKDF/AEAD SessionID + cert-binding HMAC) **and server decision pipeline** (`ParseClientHello` + `Authenticate`), stdlib only; the live TLS plumbing is still open — see [REALITY.md](REALITY.md).
 - ✅ `obfs/webrtc` — Snowflake-style WebRTC data-channel transport.
 
 Composition (the layers stack; apply from the wire inward): port hopping →

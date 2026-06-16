@@ -174,13 +174,18 @@ ephemeral keys, nor (b) forge a CertificateVerify signature. Three options, rank
 |---|---|---|---|---|
 | **0** | `obfs/reality` | SNI-passthrough fallback (probes spliced to a real upstream). Closes the main Trojan gap. | none | **done** |
 | **1a** | `obfs/xreality` | REALITY **auth/crypto core** (X25519 ECDH, HKDF auth key, AEAD SessionID seal/open, replay window, cert-binding HMAC) — stdlib only, fully unit-tested. | none | **done** |
-| **1b** | `obfs/xreality` | **TLS-handshake integration**: client SessionID injection + HMAC cert verify (uTLS); server ClientHello peek → `ServerAuthenticate` → forged-cert termination *or* raw passthrough. Requires Option 1 (vendor Xray MPL TLS). | uTLS (+ vendored MPL TLS) | open |
+| **1b-i** | `obfs/xreality` | Server **decision pipeline**: `ParseClientHello` (random/session-id/SNI/X25519 share, fully bounds-checked) + `Authenticate` (parse → ECDH → AEAD verify → replay window → shortId gate → route). Pure, stdlib-only, fully tested. | none | **done** |
+| **1b-ii** | `obfs/xreality` | Live **TLS plumbing**: client SessionID injection + keyshare-ephemeral reuse + HMAC cert verify via uTLS; server raw-peek → `Authenticate` → forged-cert termination *or* raw passthrough. Needs uTLS handshake-state control (its keyshare-private API is in flux) and a forged-cert TLS path → Option 1 (vendor Xray MPL TLS). | uTLS (+ vendored MPL TLS) | open |
 | **2** | `servion/vrpc` | `RealityTransport` bean + keypair / shortId / `dest` config + rotation in servion's control plane. | none beyond 1b | open |
 | **3** | docs | The "REALITY + inner obfs shaping" recipe (handshake **and** traffic-shape defense together). | none | open |
 
-Phase 1a (`obfs/xreality`, the auth core) is the security-critical, TLS-independent
-part and is implemented and tested now; the `ClientSessionID` / `ServerAuthenticate` /
-`CertHMAC` functions are exactly the seams Phase 1b's TLS integration will call.
+Phases 1a + 1b-i (`obfs/xreality`) are the security-critical, TLS-independent parts and
+are implemented and tested now: the auth core (`ClientSessionID` / `ServerAuthenticate`
+/ `CertHMAC`) plus the server decision pipeline (`ParseClientHello` / `Authenticate`).
+What remains (1b-ii) is the live TLS plumbing — the part that needs uTLS handshake-state
+control and a forged-certificate TLS path, i.e. the vendored/forked TLS stack. The
+`Authenticate` function is exactly the seam that plumbing calls after peeking the raw
+ClientHello.
 
 value-rpc is untouched in every phase.
 

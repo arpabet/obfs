@@ -34,8 +34,12 @@ module a change applies to.
   (stdlib only): X25519 ECDH, HKDF-SHA256 auth-key derivation, AES-256-GCM SessionID
   seal/open bound to the ClientHello random, replay-window check, and the
   certificate-binding HMAC (`ClientSessionID`, `ServerAuthenticate`, `CertHMAC`). This
-  is REALITY.md Phase 1a — the TLS-independent, security-critical part; the TLS
-  handshake integration (Phase 1b) is still open and needs a vendored/forked TLS stack.
+  is REALITY.md Phase 1a — the TLS-independent, security-critical part.
+  Phase 1b-i adds the server **decision pipeline**: `ParseClientHello` (a strict,
+  bounds-checked extractor of the random / session id / SNI / X25519 key share) and
+  `Authenticate` (parse → ECDH → AEAD verify → replay window → shortId gate → route).
+  Still open (1b-ii): the live TLS plumbing (uTLS client injection + forged-cert
+  termination), which needs a vendored/forked TLS stack.
 - **SNI-passthrough** in `obfs/reality` (`ServerConfig.ServerNames` + `Passthrough`)
   — the listener peeks each ClientHello and raw-splices any connection whose SNI does
   not match to a real TLS upstream, so probes/IP-range scanners using the wrong (or
