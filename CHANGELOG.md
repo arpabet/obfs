@@ -30,6 +30,12 @@ module a change applies to.
   paced out, idle slots are filled with cover, and `Write` back-pressures to the rate
   (Holland & Hopper, PETS 2022). Supersedes `CoverEvery`/`Front`; `Close` flushes the
   queue.
+- **`obfs/xreality`** (new submodule) — the REALITY authentication crypto core
+  (stdlib only): X25519 ECDH, HKDF-SHA256 auth-key derivation, AES-256-GCM SessionID
+  seal/open bound to the ClientHello random, replay-window check, and the
+  certificate-binding HMAC (`ClientSessionID`, `ServerAuthenticate`, `CertHMAC`). This
+  is REALITY.md Phase 1a — the TLS-independent, security-critical part; the TLS
+  handshake integration (Phase 1b) is still open and needs a vendored/forked TLS stack.
 - **SNI-passthrough** in `obfs/reality` (`ServerConfig.ServerNames` + `Passthrough`)
   — the listener peeks each ClientHello and raw-splices any connection whose SNI does
   not match to a real TLS upstream, so probes/IP-range scanners using the wrong (or

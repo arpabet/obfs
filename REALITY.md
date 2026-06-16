@@ -170,12 +170,17 @@ ephemeral keys, nor (b) forge a CertificateVerify signature. Three options, rank
 
 ## 7. Phased plan
 
-| Phase | Where | Deliverable | New deps |
-|---|---|---|---|
-| **0** | `obfs/reality` | SNI-passthrough fallback (probes spliced to a real upstream). Closes the main Trojan gap. Shippable immediately. | none |
-| **1** | `obfs/xreality` | Full REALITY client + server via Option 1 (vendor Xray MPL files); unit-test the auth / probe-passthrough / cert-forge-and-verify paths. | uTLS (+ vendored MPL TLS) |
-| **2** | `servion/vrpc` | `RealityTransport` bean + keypair / shortId / `dest` config + rotation in servion's control plane. | none beyond Phase 1 |
-| **3** | docs | The "REALITY + inner obfs shaping" recipe (handshake **and** traffic-shape defense together). | none |
+| Phase | Where | Deliverable | New deps | Status |
+|---|---|---|---|---|
+| **0** | `obfs/reality` | SNI-passthrough fallback (probes spliced to a real upstream). Closes the main Trojan gap. | none | **done** |
+| **1a** | `obfs/xreality` | REALITY **auth/crypto core** (X25519 ECDH, HKDF auth key, AEAD SessionID seal/open, replay window, cert-binding HMAC) — stdlib only, fully unit-tested. | none | **done** |
+| **1b** | `obfs/xreality` | **TLS-handshake integration**: client SessionID injection + HMAC cert verify (uTLS); server ClientHello peek → `ServerAuthenticate` → forged-cert termination *or* raw passthrough. Requires Option 1 (vendor Xray MPL TLS). | uTLS (+ vendored MPL TLS) | open |
+| **2** | `servion/vrpc` | `RealityTransport` bean + keypair / shortId / `dest` config + rotation in servion's control plane. | none beyond 1b | open |
+| **3** | docs | The "REALITY + inner obfs shaping" recipe (handshake **and** traffic-shape defense together). | none | open |
+
+Phase 1a (`obfs/xreality`, the auth core) is the security-critical, TLS-independent
+part and is implemented and tested now; the `ClientSessionID` / `ServerAuthenticate` /
+`CertHMAC` functions are exactly the seams Phase 1b's TLS integration will call.
 
 value-rpc is untouched in every phase.
 

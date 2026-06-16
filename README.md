@@ -326,6 +326,7 @@ discipline `value-rpc/quic` uses for `quic-go`):
 - ✅ `obfs/hop` — port/address hopping — zero deps.
 - ✅ `obfs/tlscamo` — uTLS ClientHello mimicry + ALPN + fingerprint rotation + optional ECH (SNI encryption).
 - ✅ `obfs/reality` — Trojan-style active-probe defense (token auth + fallback + optional SNI-passthrough). Full REALITY design: [REALITY.md](REALITY.md).
+- 🚧 `obfs/xreality` — REALITY **auth crypto core** (X25519/HKDF/AEAD SessionID + cert-binding HMAC), stdlib only; TLS-handshake integration still open — see [REALITY.md](REALITY.md).
 - ✅ `obfs/webrtc` — Snowflake-style WebRTC data-channel transport.
 
 Composition (the layers stack; apply from the wire inward): port hopping →

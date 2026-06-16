@@ -95,6 +95,33 @@ jobs:
         working-directory: reality
         run: go test -race -cover ./...
 
+  # xreality is a separate module (go.arpabet.com/obfs/xreality): the REALITY auth
+  # crypto core (stdlib only, no TLS integration yet). See REALITY.md.
+  xreality:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: [ '1.25.x', '1.26.x' ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Build
+        working-directory: xreality
+        run: go build ./...
+
+      - name: Vet
+        working-directory: xreality
+        run: go vet ./...
+
+      - name: Test
+        working-directory: xreality
+        run: go test -race -cover ./...
+
   # webrtc is a separate module (go.arpabet.com/obfs/webrtc) so the heavy pion tree
   # stays out of the core; it gets its own job.
   webrtc:
@@ -159,4 +186,8 @@ jobs:
 
       - name: govulncheck (webrtc submodule)
         working-directory: webrtc
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+      - name: govulncheck (xreality submodule)
+        working-directory: xreality
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
