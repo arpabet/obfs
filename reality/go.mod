@@ -2,9 +2,7 @@ module go.arpabet.com/obfs/reality
 
 go 1.25.0
 
-require go.arpabet.com/obfs/tlscamo v0.0.0
-
-replace go.arpabet.com/obfs/tlscamo => ../tlscamo
+require go.arpabet.com/obfs/tlscamo v0.1.0
 
 require (
 	github.com/andybalholm/brotli v1.0.6 // indirect
