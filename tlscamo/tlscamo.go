@@ -25,6 +25,13 @@
 // (e.g. value-rpc's NewTLSServer). Leave the server's ALPN unset, or include the
 // protocols the client offers, so the mimicked ALPN does not break negotiation.
 //
+// # Encrypted ClientHello (ECH)
+//
+// Set Config.ECHConfigList (a serialized ECHConfigList, usually from the target's
+// DNS HTTPS/SVCB "ech=" record) to encrypt the inner ClientHello, hiding the real
+// SNI from a censor that blocks on plaintext server names. ECH needs TLS 1.3 and
+// only succeeds if the server negotiates it; see the field doc.
+//
 // # Caveats
 //
 // Browser fingerprints drift; pin the utls version and refresh presets over time.
@@ -75,6 +82,18 @@ type Config struct {
 	// Roll picks a random fingerprint from a pool of common browsers on each call,
 	// so repeated connections do not all share one fingerprint.
 	Roll bool
+
+	// ECHConfigList, when non-empty, is a serialized TLS ECHConfigList that turns on
+	// Encrypted ClientHello: the inner ClientHello — including the real ServerName
+	// (SNI) — is encrypted under one of these configs, so a censor keying on
+	// plaintext SNI sees only the public outer name. Obtain it out of band, typically
+	// from the target's DNS HTTPS/SVCB record ("ech=" value).
+	//
+	// ECH requires TLS 1.3 and a fingerprint whose ClientHello carries a (GREASE) ECH
+	// extension — the default Chrome preset does. The handshake then succeeds ONLY if
+	// the server negotiates ECH; if it rejects ECH, Client returns an error (which may
+	// carry a retry ECHConfigList). Leave empty to keep the prior plaintext-SNI behavior.
+	ECHConfigList []byte
 }
 
 // Client performs a uTLS handshake over conn — typically a freshly dialed TCP
@@ -94,10 +113,11 @@ func Client(conn net.Conn, cfg Config) (net.Conn, error) {
 		alpn = []string{"h2", "http/1.1"}
 	}
 	uconn := utls.UClient(conn, &utls.Config{
-		ServerName:         cfg.ServerName,
-		RootCAs:            cfg.RootCAs,
-		InsecureSkipVerify: cfg.InsecureSkipVerify,
-		NextProtos:         alpn,
+		ServerName:                     cfg.ServerName,
+		RootCAs:                        cfg.RootCAs,
+		InsecureSkipVerify:             cfg.InsecureSkipVerify,
+		NextProtos:                     alpn,
+		EncryptedClientHelloConfigList: cfg.ECHConfigList,
 	}, id)
 	if err := uconn.Handshake(); err != nil {
 		return nil, err

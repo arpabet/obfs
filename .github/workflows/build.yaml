@@ -35,6 +35,12 @@ jobs:
       - name: Test
         run: go test -race -cover ./...
 
+      # Smoke-run the cell-parser fuzz targets so they keep finding no panics/hangs.
+      - name: Fuzz (smoke)
+        run: |
+          go test -run='^$' -fuzz='FuzzShapedRead' -fuzztime=15s .
+          go test -run='^$' -fuzz='FuzzMorphRead' -fuzztime=15s .
+
   # tlscamo is a separate module (go.arpabet.com/obfs/tlscamo) so its uTLS
   # dependency stays out of the zero-dep core; it gets its own job.
   tlscamo:

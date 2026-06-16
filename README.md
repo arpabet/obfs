@@ -48,7 +48,7 @@ combine the layers that match your adversary.
 |---------|--------------|------|
 | `obfs` | fixed-cell shaper (`Wrap`), length padding, timing jitter, cover traffic, pluggable `Fill` (random / printable / zero), **distribution-matching morpher** (`SizeSampler`/`DelaySampler`) | stdlib only |
 | `obfs/hop` | port/address hopping — client rotates destinations on a time schedule, server listens on all of them | stdlib only |
-| `obfs/tlscamo` | **uTLS ClientHello mimicry** — TLS client whose JA3/JA4 matches a real browser, with ALPN and fingerprint rotation (separate module) | `refraction-networking/utls` |
+| `obfs/tlscamo` | **uTLS ClientHello mimicry** — TLS client whose JA3/JA4 matches a real browser, with ALPN, fingerprint rotation, and optional **Encrypted ClientHello (ECH)** to hide the SNI (separate module) | `refraction-networking/utls` |
 | `obfs/reality` | **Trojan-style active-probe defense** — token-authenticated TLS tunnel; unauthenticated probes are reverse-proxied to a real fallback site (separate module) | `obfs/tlscamo` (→ utls) |
 | `obfs/webrtc` | **Snowflake-style WebRTC data channel** — carry a `net.Conn` over a WebRTC data channel (looks like a call); pluggable signaling, no built-in broker (separate module) | `pion/webrtc` |
 
@@ -131,6 +131,15 @@ dialer := valuerpc.NewFuncDialer(func() (io.ReadWriteCloser, error) {
     // browser-like ClientHello (outermost); shape inside with obfs.Wrap(conn, …) if desired
     return tlscamo.Client(raw, tlscamo.Config{ServerName: "example.com", Fingerprint: tlscamo.Chrome})
 }, valueclient.DefaultTimeout)
+```
+
+To also hide the **SNI** from a censor that blocks on plaintext server names, set
+`ECHConfigList` (Encrypted ClientHello). Fetch the serialized config from the
+target's DNS HTTPS/SVCB `ech=` record; ECH needs TLS 1.3 and only succeeds if the
+server negotiates it:
+
+```go
+tlscamo.Config{ServerName: "example.com", Fingerprint: tlscamo.Chrome, ECHConfigList: echList}
 ```
 
 ### Active-probe defense (`obfs/reality`)
@@ -260,7 +269,7 @@ discipline `value-rpc/quic` uses for `quic-go`):
 
 - ✅ `obfs` core — fixed-cell shaper + **distribution-matching morpher** (`SizeSampler`/`DelaySampler`), cover traffic, fills — zero deps.
 - ✅ `obfs/hop` — port/address hopping — zero deps.
-- ✅ `obfs/tlscamo` — uTLS ClientHello mimicry + ALPN + fingerprint rotation.
+- ✅ `obfs/tlscamo` — uTLS ClientHello mimicry + ALPN + fingerprint rotation + optional ECH (SNI encryption).
 - ✅ `obfs/reality` — Trojan-style active-probe defense (token auth + fallback).
 - ✅ `obfs/webrtc` — Snowflake-style WebRTC data-channel transport.
 

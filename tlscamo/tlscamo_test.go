@@ -182,6 +182,27 @@ func TestRoll_HandshakesAcrossFingerprints(t *testing.T) {
 	}
 }
 
+// TestClient_ECHConfigWired: when ECHConfigList carries no valid ECH config, the
+// handshake must fail rather than silently fall back to plaintext SNI — proving the
+// field is wired through to uTLS and ECH is enforced when requested.
+func TestClient_ECHConfigWired(t *testing.T) {
+	addr := tlsEchoServer(t, []string{"h2"})
+	_, pool := serverCert(t)
+
+	raw, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer raw.Close()
+	if _, err := tlscamo.Client(raw, tlscamo.Config{
+		ServerName:    "localhost",
+		RootCAs:       pool,
+		ECHConfigList: []byte("not-a-valid-ech-config-list"),
+	}); err == nil {
+		t.Fatal("expected handshake failure when ECH is requested but unavailable")
+	}
+}
+
 func TestClient_VerificationFailsForWrongName(t *testing.T) {
 	addr := tlsEchoServer(t, nil)
 	_, pool := serverCert(t)
