@@ -21,11 +21,14 @@ The shipping `obfs/reality` package today is **Trojan-grade** (server presents i
 - **`servion` owns the control plane**: the X25519 server keypair, the shortId set,
   the borrowed-SNI `dest`, key rotation, and the DI/lifecycle wiring (a `Transport`
   bean in `servion/vrpc`).
-- **The one genuinely hard part is unavoidable and dominates the work:** REALITY
-  modifies the TLS 1.3 handshake on *both* ends, which stock `crypto/tls` cannot do.
-  This is "TLS-stack surgery," not glue. The pragmatic path is to vendor Xray's
-  audited REALITY TLS code as a separate **MPL-2.0** submodule (no license conflict —
-  obfs's BUSL Change License is already MPL-2.0).
+- **The hard part — modifying the TLS 1.3 handshake on both ends — turned out to be
+  avoidable for our use case.** Because both peers are ours, `obfs/xreality` reuses the
+  uTLS browser hello's X25519 key share + injects the sealed SessionID on the client,
+  and proves server identity with a **post-handshake channel-bound HMAC** instead of a
+  forged certificate — so it runs on stock `crypto/tls` + the uTLS public API, no fork.
+  The one scenario that still needs the fork is **wire-compatibility with real Xray
+  servers**, for which vendoring Xray's MPL-2.0 TLS code is the path (no license
+  conflict — obfs's BUSL Change License is already MPL-2.0).
 - **REALITY only fixes the handshake.** Real-world GFW testing still blocked it via
   *post-handshake traffic shape*. That is exactly what the rest of `obfs`
   (morpher / FRONT / RegulaTor pacer) defends — run them **inside** the tunnel. This
@@ -104,23 +107,23 @@ A new submodule (heavy, TLS-forking deps stay out of the zero-dep core), mirrori
 the existing `reality` package shape so it is a near drop-in:
 
 ```go
-package xreality
+package xreality // as implemented
 
 // Server: only authenticated tunnels come out of Accept; probes are spliced to Dest.
 ln := xreality.Listener(baseTCP, xreality.ServerConfig{
-    PrivateKey:  x25519Priv,             // servion owns + rotates
-    ShortIDs:    [][]byte{shortID},      // accepted client tags
-    ServerNames: []string{"www.realsite.com"},
-    Dest:        "www.realsite.com:443", // borrowed SNI + passthrough target
-    TimeSkew:    90 * time.Second,       // replay window on the embedded timestamp
+    PrivateKey: x25519Priv,                          // *ecdh.PrivateKey; servion owns + rotates
+    ShortIDs:   [][]byte{shortID},                   // accepted client tags (<= 8 bytes)
+    TLSConfig:  &tls.Config{Certificates: certs},    // self-signed cert for the borrowed SNI is fine
+    Dest:       "www.realsite.com:443",              // borrowed real site for probe passthrough
+    TimeSkew:   90 * time.Second,                    // replay window on the embedded timestamp
 })
 
-// Client: dials, performs the REALITY handshake, returns the verified tunnel.
+// Client: dials, performs the REALITY handshake, returns the channel-verified tunnel.
 dial := xreality.Dialer("tcp", serverAddr, xreality.ClientConfig{
-    PublicKey:   x25519Pub,
-    ShortID:     shortID,
-    ServerName:  "www.realsite.com",
-    Fingerprint: tlscamo.Chrome,         // reuses obfs/tlscamo
+    ServerPublicKey: x25519Priv.PublicKey().Bytes(), // server's static X25519 public key
+    ShortID:         shortID,
+    ServerName:      "www.realsite.com",
+    // Fingerprint defaults to Chrome (utls.ClientHelloID)
 })
 ```
 
@@ -128,34 +131,40 @@ dial := xreality.Dialer("tcp", serverAddr, xreality.ClientConfig{
 example wraps Trojan `reality` (`servion/vrpc/obfs.go`): swap `reality.*` for
 `xreality.*` and add beans for the keypair, shortIds, and `dest`.
 
-## 5. The hard part: TLS-stack surgery (the real cost)
+## 5. The hard part: TLS-stack surgery — and how `obfs/xreality` avoids it
 
 Stock `crypto/tls` cannot (a) hand you control of the ClientHello SessionID and
-ephemeral keys, nor (b) forge a CertificateVerify signature. Three options, ranked:
+ephemeral keys, nor (b) forge a CertificateVerify signature. Options, with what was
+actually built:
 
-1. **Vendor Xray's `reality` TLS code into `obfs/xreality` as an MPL-2.0 submodule
-   (recommended).** Xray-core is **MPL-2.0**; MPL is *file-level* copyleft, so those
-   files live in a separate module beside our BUSL-1.1 core as long as they keep
-   their MPL headers — and obfs's BUSL **Change License is already MPL-2.0**, so there
-   is no conflict. Reuses audited, security-critical crypto instead of re-deriving it.
-   Lowest risk, fastest, honest about provenance. The submodule's own `LICENSE`
-   (MPL-2.0) documents the mixed licensing.
-2. **Fork a minimal TLS 1.3 handshake.** Client via uTLS's exposed handshake state;
-   server via a trimmed `crypto/tls` copy patched at the Certificate /
-   CertificateVerify step. This is what Xray maintains — a standing burden to track
-   Go's TLS changes. Only worth it to avoid the MPL dependency.
-3. **Phase 0 (cheap, no surgery): SNI-passthrough in the existing `obfs/reality`.**
-   Peek the ClientHello and *splice probes to a real upstream* (raw TCP) instead of
-   reverse-proxying decrypted bytes to an HTTP origin. Probers then get a real
-   third-party certificate — closing the biggest Trojan gap — with a few hundred
-   lines and **no new dependencies and no cert forgery**. Not byte-identical to
-   REALITY's authenticated path, but a large, safe increment shippable now.
+0. **Implemented: channel-bound auth on stock TLS + uTLS (no fork).** Problem (a) is
+   solved by uTLS's public API — `BuildHandshakeState` exposes the keyshare ephemeral
+   and lets us inject the SessionID before `MarshalClientHello`. Problem (b) is sidestepped
+   entirely: instead of forging the certificate, the server proves identity *after* the
+   handshake with `HMAC(authKey, tag‖ExportKeyingMaterial())`, which the client verifies.
+   This is what `obfs/xreality` ships. It is **not Xray-wire-compatible** (acceptable —
+   both peers are ours) and is the lowest-risk, dependency-light path.
+1. **Vendor Xray's `reality` TLS code into a submodule as MPL-2.0 (for Xray interop).**
+   Needed only if you must interoperate with real Xray servers/clients. Xray-core is
+   **MPL-2.0**; MPL is *file-level* copyleft, so those files live in a separate module
+   beside our BUSL-1.1 core as long as they keep their MPL headers — and obfs's BUSL
+   **Change License is already MPL-2.0**, so there is no conflict. Reuses audited code
+   instead of re-deriving it; the submodule's own `LICENSE` documents the mixed licensing.
+2. **Fork a minimal TLS 1.3 handshake.** Server via a trimmed `crypto/tls` copy patched
+   at the CertificateVerify step. This is what Xray maintains — a standing burden to
+   track Go's TLS changes. Only worth it to avoid the MPL dependency while keeping Xray
+   compatibility.
+3. **Phase 0 (shipped earlier): SNI-passthrough in `obfs/reality`.** Peek the ClientHello
+   and splice wrong-SNI probes to a real upstream — a cheap Trojan hardening, no auth/no
+   forgery, complementary to the above.
 
 ## 6. Security caveats (must ship in the package doc)
 
-- **No formal proof; non-standard crypto.** The certificate "signature" is an HMAC,
-  not a CA signature; security rests on X25519 + AEAD + HKDF primitives, not a proven
-  protocol composition.
+- **No formal proof; non-standard crypto.** Client→server auth is an AEAD-sealed token
+  in the SessionID; server→client auth is a channel-bound HMAC over TLS exporter keying
+  material (not a CA signature). Security rests on X25519 + AEAD + HKDF + the TLS
+  exporter, not a formally proven protocol composition. The replay window and the
+  exporter binding are load-bearing — review them before relying on this.
 - **REALITY only fixes the handshake.** Real-world GFW testing (Iran; Xray #2778 /
   #3269) still blocked REALITY flows over time via **post-handshake traffic-shape**
   distinguishers. Mitigation lives in this same module: run the **shaper / morpher /
@@ -175,17 +184,34 @@ ephemeral keys, nor (b) forge a CertificateVerify signature. Three options, rank
 | **0** | `obfs/reality` | SNI-passthrough fallback (probes spliced to a real upstream). Closes the main Trojan gap. | none | **done** |
 | **1a** | `obfs/xreality` | REALITY **auth/crypto core** (X25519 ECDH, HKDF auth key, AEAD SessionID seal/open, replay window, cert-binding HMAC) — stdlib only, fully unit-tested. | none | **done** |
 | **1b-i** | `obfs/xreality` | Server **decision pipeline**: `ParseClientHello` (random/session-id/SNI/X25519 share, fully bounds-checked) + `Authenticate` (parse → ECDH → AEAD verify → replay window → shortId gate → route). Pure, stdlib-only, fully tested. | none | **done** |
-| **1b-ii** | `obfs/xreality` | Live **TLS plumbing**: client SessionID injection + keyshare-ephemeral reuse + HMAC cert verify via uTLS; server raw-peek → `Authenticate` → forged-cert termination *or* raw passthrough. Needs uTLS handshake-state control (its keyshare-private API is in flux) and a forged-cert TLS path → Option 1 (vendor Xray MPL TLS). | uTLS (+ vendored MPL TLS) | open |
+| **1b-ii** | `obfs/xreality` | Live **TLS plumbing**: `Client` (uTLS browser hello, reuses the hello's X25519 key share as the REALITY ephemeral, injects the sealed SessionID) + `Listener` (raw-peek → `Authenticate` → terminate *or* raw-splice to `Dest`). Server identity is proven by a **post-handshake channel-bound HMAC** (TLS exporter keying material), which replaces REALITY's in-handshake forged certificate — so **no TLS fork is needed**. | uTLS | **done (no-fork variant)** |
 | **2** | `servion/vrpc` | `RealityTransport` bean + keypair / shortId / `dest` config + rotation in servion's control plane. | none beyond 1b | open |
 | **3** | docs | The "REALITY + inner obfs shaping" recipe (handshake **and** traffic-shape defense together). | none | open |
 
-Phases 1a + 1b-i (`obfs/xreality`) are the security-critical, TLS-independent parts and
-are implemented and tested now: the auth core (`ClientSessionID` / `ServerAuthenticate`
-/ `CertHMAC`) plus the server decision pipeline (`ParseClientHello` / `Authenticate`).
-What remains (1b-ii) is the live TLS plumbing — the part that needs uTLS handshake-state
-control and a forged-certificate TLS path, i.e. the vendored/forked TLS stack. The
-`Authenticate` function is exactly the seam that plumbing calls after peeking the raw
-ClientHello.
+Phases 1a, 1b-i, and 1b-ii (`obfs/xreality`) are implemented and tested: the auth core
+(`ClientSessionID` / `ServerAuthenticate` / `CertHMAC`), the server decision pipeline
+(`ParseClientHello` / `Authenticate`), and the live transport (`Client` / `Dialer` /
+`Listener`).
+
+The live transport avoids the TLS fork via a design adjustment that the "both peers are
+ours" freedom allows. An experiment confirmed uTLS's public API is enough on the client:
+after `BuildHandshakeState`, the browser hello's standalone X25519 key share
+(`State13.KeyShareKeys.Ecdhe`, matching the on-wire group `0x001d` share) is reused as
+the REALITY ephemeral, the sealed SessionID is injected, and `MarshalClientHello` +
+`Handshake` complete a real handshake against a stock `crypto/tls` server. The only
+gap — proving server identity without a CA-valid certificate — is filled **after** the
+handshake by a **channel-bound HMAC**: both sides export TLS keying material
+(`ExportKeyingMaterial`) and exchange `HMAC(authKey, tag‖ekm)`. Only the real server
+knows `authKey` (derived from its static key + the client ephemeral), and the binding to
+the exporter defeats a MITM that re-terminates TLS. This replaces REALITY's in-handshake
+forged `CertificateVerify` (which would need a forked TLS stack) with an equivalent,
+TLS-1.3-encrypted, censor-invisible check. (One uTLS quirk: the browser preset's
+`renegotiation_info` extension disables the exporter; the flag is cleared post-handshake,
+leaving the on-wire fingerprint untouched.)
+
+The trade-off: this is **not wire-compatible with Xray REALITY** (it never was meant to
+be — see below). For Xray interop specifically, the vendored/forked TLS path in §5 would
+still be required.
 
 value-rpc is untouched in every phase.
 

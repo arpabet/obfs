@@ -9,24 +9,24 @@
 // keyed certificate-binding HMAC. These are pure, deterministic, fully testable
 // functions with no dependency outside the standard library.
 //
-// # Scope (what this package is, and is NOT)
+// # Scope
 //
-// This is ONLY the crypto/auth core — the part of REALITY that is independent of the
-// TLS stack. The remaining work to make a complete REALITY transport is the
-// TLS-handshake integration:
+// This file is the crypto/auth core — the TLS-independent functions (ECDH, HKDF auth
+// key, AEAD SessionID seal/open, cert-binding HMAC). The live transport built on top of
+// it lives in client.go (Client/Dialer) and listener.go (Listener):
 //
-//   - client: inject the SessionID (and read the ephemeral X25519 key) into a uTLS
-//     ClientHello, and verify the server's certificate via the HMAC instead of a CA
-//     chain;
-//   - server: peek the raw ClientHello before termination, run ServerAuthenticate,
-//     then either terminate TLS presenting a forged certificate (authenticated) or
-//     raw-splice to the borrowed site (probe).
+//   - client: mimic a browser ClientHello (uTLS), reuse its X25519 key share as the
+//     REALITY ephemeral, inject the sealed SessionID, and verify the server via a
+//     post-handshake channel-bound HMAC (see CertHMAC / ExportKeyingMaterial) instead
+//     of a CA chain;
+//   - server: peek the raw ClientHello, run Authenticate, then terminate TLS for
+//     authenticated clients or raw-splice probes to the borrowed site (Dest).
 //
-// That integration requires a forked/vendored TLS 1.3 stack (stock crypto/tls cannot
-// control the ClientHello SessionID or forge the CertificateVerify signature); see
-// REALITY.md at the repository root for the full design and the licensing path. Until
-// then, obfs/reality provides Trojan-grade probe resistance with optional
-// SNI-passthrough.
+// Replacing REALITY's in-handshake forged certificate with a post-handshake
+// channel-bound HMAC lets this run on stock crypto/tls + the uTLS public API with no
+// forked TLS stack. The trade-off is that it is NOT wire-compatible with Xray REALITY
+// (acceptable, since both peers run this package). See REALITY.md at the repository root
+// for the full design, the security caveats, and the path to Xray interop.
 //
 // # Wire self-consistency, not Xray compatibility
 //

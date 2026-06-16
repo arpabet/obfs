@@ -38,8 +38,14 @@ module a change applies to.
   Phase 1b-i adds the server **decision pipeline**: `ParseClientHello` (a strict,
   bounds-checked extractor of the random / session id / SNI / X25519 key share) and
   `Authenticate` (parse → ECDH → AEAD verify → replay window → shortId gate → route).
-  Still open (1b-ii): the live TLS plumbing (uTLS client injection + forged-cert
-  termination), which needs a vendored/forked TLS stack.
+  Phase 1b-ii adds the **live transport** (`Client` / `Dialer` / `Listener`): the
+  client mimics a browser ClientHello (uTLS), reuses its X25519 key share as the REALITY
+  ephemeral, and injects the sealed SessionID; the server peeks the ClientHello, routes
+  authenticated clients to a TLS terminator and probes to a raw splice to `Dest` (the
+  real borrowed site). Server identity is proven by a **post-handshake channel-bound
+  HMAC** over TLS exporter keying material — which replaces REALITY's in-handshake
+  forged certificate, so it runs on stock `crypto/tls` + uTLS with **no TLS fork**. Not
+  wire-compatible with Xray (both peers are ours); adds a uTLS dependency.
 - **SNI-passthrough** in `obfs/reality` (`ServerConfig.ServerNames` + `Passthrough`)
   — the listener peeks each ClientHello and raw-splices any connection whose SNI does
   not match to a real TLS upstream, so probes/IP-range scanners using the wrong (or

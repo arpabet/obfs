@@ -50,6 +50,7 @@ combine the layers that match your adversary.
 | `obfs/hop` | port/address hopping — client rotates destinations on a time schedule, server listens on all of them | stdlib only |
 | `obfs/tlscamo` | **uTLS ClientHello mimicry** — TLS client whose JA3/JA4 matches a real browser, with ALPN, fingerprint rotation, and optional **Encrypted ClientHello (ECH)** to hide the SNI (separate module) | `refraction-networking/utls` |
 | `obfs/reality` | **Trojan-style active-probe defense** — token-authenticated TLS tunnel; unauthenticated probes are reverse-proxied to a real fallback site, plus optional **SNI-passthrough** (wrong-SNI scanners get raw-spliced to a real upstream's genuine cert) (separate module) | `obfs/tlscamo` (→ utls) |
+| `obfs/xreality` | **REALITY-style transport** — browser-mimicked uTLS ClientHello with a sealed X25519-authenticated SessionID; probes raw-spliced to the real borrowed site; server proven by a post-handshake channel-bound HMAC (no TLS fork; not Xray-wire-compatible) (separate module) | `refraction-networking/utls` |
 | `obfs/webrtc` | **Snowflake-style WebRTC data channel** — carry a `net.Conn` over a WebRTC data channel (looks like a call); pluggable signaling, no built-in broker (separate module) | `pion/webrtc` |
 
 ## Install
@@ -248,12 +249,18 @@ A separate, **stdlib-only, zero-dependency** module:
   a strict, bounds-checked ClientHello parser (random / session id / SNI / X25519 share)
   composed with `ServerAuthenticate` to classify a peeked ClientHello as authenticated
   (→ terminate) or a probe (→ pass through).
+- `Client` / `Dialer` / `Listener` — the **live transport**. The client mimics a browser
+  ClientHello (uTLS), reuses its X25519 key share as the REALITY ephemeral, and injects
+  the sealed SessionID; the server peeks the ClientHello and routes authenticated clients
+  to a TLS terminator, probes to a raw splice to the real borrowed site (`Dest`). Server
+  identity is proven by a **post-handshake channel-bound HMAC** over TLS exporter keying
+  material, which replaces REALITY's in-handshake forged certificate — so it runs on
+  stock `crypto/tls` + uTLS with **no TLS fork**.
 
 Deliberately **not** wire-compatible with Xray (both peers are ours), so the layout is
 clean: `SessionID = AES-256-GCM(plaintext=[8B time][8B shortId])` exactly filling the
-32-byte field. The crypto core and the server decision pipeline are done; what remains
-is the live TLS plumbing (uTLS ClientHello injection + a forged-certificate TLS path),
-which needs a vendored/forked TLS stack — see [REALITY.md](REALITY.md).
+32-byte field. The full design — including the path to Xray interop (vendored MPL TLS) —
+is in [REALITY.md](REALITY.md).
 
 ### WebRTC data channel (`obfs/webrtc`)
 
@@ -355,7 +362,7 @@ discipline `value-rpc/quic` uses for `quic-go`):
 - ✅ `obfs/hop` — port/address hopping — zero deps.
 - ✅ `obfs/tlscamo` — uTLS ClientHello mimicry + ALPN + fingerprint rotation + optional ECH (SNI encryption).
 - ✅ `obfs/reality` — Trojan-style active-probe defense (token auth + fallback + optional SNI-passthrough). Full REALITY design: [REALITY.md](REALITY.md).
-- 🚧 `obfs/xreality` — REALITY **auth crypto core** (X25519/HKDF/AEAD SessionID + cert-binding HMAC) **and server decision pipeline** (`ParseClientHello` + `Authenticate`), stdlib only; the live TLS plumbing is still open — see [REALITY.md](REALITY.md).
+- ✅ `obfs/xreality` — REALITY-style transport (`Client`/`Dialer`/`Listener`): browser-mimicked uTLS ClientHello with a sealed SessionID, X25519 auth, probe passthrough to the real borrowed site, and server identity proven by a post-handshake channel-bound HMAC (no TLS fork; not Xray-wire-compatible) — see [REALITY.md](REALITY.md).
 - ✅ `obfs/webrtc` — Snowflake-style WebRTC data-channel transport.
 
 Composition (the layers stack; apply from the wire inward): port hopping →
