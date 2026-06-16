@@ -23,6 +23,13 @@ module a change applies to.
   shaper — front-loads a randomized budget of dummy cells at Rayleigh-distributed
   times over a window, blunting website-fingerprinting on the early part of a trace
   (Gong & Wang, USENIX Security 2020). Sender-side, composes with `CoverEvery`.
+- **RegulaTor-style send pacing** (`Policy.Paced`, `PacedConfig`) in the core stream
+  shaper — a background pacer releases cells at a controlled, decaying rate instead
+  of when `Write` is called, smoothing traffic *bursts* (the part FRONT and the
+  morpher leave untouched) into a shape-independent schedule; queued real cells are
+  paced out, idle slots are filled with cover, and `Write` back-pressures to the rate
+  (Holland & Hopper, PETS 2022). Supersedes `CoverEvery`/`Front`; `Close` flushes the
+  queue.
 - **LICENSE** file (BUSL-1.1, Change License MPL 2.0) at the repository root,
   matching the rest of the `go.arpabet.com` family. All source headers already
   declared `SPDX-License-Identifier: BUSL-1.1`; the file was previously missing.

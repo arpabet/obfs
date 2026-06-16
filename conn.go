@@ -37,6 +37,16 @@ type shapedConn struct {
 	sizeSampler  func() int
 	delaySampler func() time.Duration
 
+	// paced mode (Paced != nil): a background pacer releases cells at a regularized,
+	// decaying rate; Write enqueues framed cells into sendQ instead of writing them.
+	paced     bool
+	pace      PacedConfig
+	sendQ     chan []byte
+	paceDead  chan struct{} // closed when the pacer stops on a base-write error
+	paceMu    sync.Mutex
+	paceStart time.Time // surge clock; reset when a burst starts on a drained queue
+	paceErrV  error     // sticky base-write error surfaced by later Write calls
+
 	writeMu   sync.Mutex
 	lastWrite time.Time
 
@@ -76,13 +86,27 @@ func newShapedConn(base net.Conn, p Policy) net.Conn {
 	if !morph {
 		c.cell = make([]byte, p.CellSize)
 	}
-	if p.CoverEvery > 0 {
-		c.wg.Add(1)
-		go c.coverLoop(p.CoverEvery)
+	if p.Paced != nil && p.Paced.Rate > 0 {
+		c.paced = true
+		c.pace = p.Paced.withDefaults()
+		c.sendQ = make(chan []byte, c.pace.Queue)
+		c.paceDead = make(chan struct{})
+		c.paceStart = time.Now()
 	}
-	if p.Front != nil && p.Front.Window > 0 && p.Front.MaxCount > 0 {
+	// The pacer supersedes idle/front cover: it already emits cover when the queue is
+	// empty, and direct writes from those loops would bypass the regularized schedule.
+	if !c.paced {
+		if p.CoverEvery > 0 {
+			c.wg.Add(1)
+			go c.coverLoop(p.CoverEvery)
+		}
+		if p.Front != nil && p.Front.Window > 0 && p.Front.MaxCount > 0 {
+			c.wg.Add(1)
+			go c.frontLoop(*p.Front)
+		}
+	} else {
 		c.wg.Add(1)
-		go c.frontLoop(*p.Front)
+		go c.pacingLoop()
 	}
 	return c
 }
@@ -90,26 +114,16 @@ func newShapedConn(base net.Conn, p Policy) net.Conn {
 // Write splits p into fixed-size cells (padding the last one) and flushes them in
 // a single underlying write, after an optional jitter delay.
 func (c *shapedConn) Write(p []byte) (int, error) {
+	if c.paced {
+		return c.writePaced(p)
+	}
 	if c.morph {
 		return c.writeMorph(p)
 	}
 	if len(p) == 0 {
 		return 0, nil
 	}
-	nCells := (len(p) + c.maxData - 1) / c.maxData
-	buf := make([]byte, nCells*c.cellSize)
-	src := p
-	for off := 0; off < len(buf); off += c.cellSize {
-		cell := buf[off : off+c.cellSize]
-		m := len(src)
-		if m > c.maxData {
-			m = c.maxData
-		}
-		binary.BigEndian.PutUint16(cell[:hdrSize], uint16(m))
-		copy(cell[hdrSize:hdrSize+m], src[:m])
-		c.fill(cell[hdrSize+m:])
-		src = src[m:]
-	}
+	buf, _ := c.fixedCells(p)
 	c.applyDelay()
 
 	c.writeMu.Lock()
@@ -119,6 +133,29 @@ func (c *shapedConn) Write(p []byte) (int, error) {
 	}
 	c.lastWrite = time.Now()
 	return len(p), nil
+}
+
+// fixedCells frames p into fixed-size cells laid out back-to-back in one buffer; the
+// returned cell slices alias that buffer, so callers may either write buf in a single
+// flush (non-paced) or enqueue the per-cell slices (paced) without extra allocation.
+func (c *shapedConn) fixedCells(p []byte) ([]byte, [][]byte) {
+	nCells := (len(p) + c.maxData - 1) / c.maxData
+	buf := make([]byte, nCells*c.cellSize)
+	cells := make([][]byte, nCells)
+	src := p
+	for i := 0; i < nCells; i++ {
+		cell := buf[i*c.cellSize : (i+1)*c.cellSize]
+		m := len(src)
+		if m > c.maxData {
+			m = c.maxData
+		}
+		binary.BigEndian.PutUint16(cell[:hdrSize], uint16(m))
+		copy(cell[hdrSize:hdrSize+m], src[:m])
+		c.fill(cell[hdrSize+m:])
+		cells[i] = cell
+		src = src[m:]
+	}
+	return buf, cells
 }
 
 // Read returns the real bytes from the next data cell, transparently skipping
@@ -226,6 +263,116 @@ func (c *shapedConn) frontLoop(cfg FrontConfig) {
 	}
 }
 
+// writePaced frames p and hands the cells to the pacer instead of writing them now,
+// applying back-pressure when the queue is full (throttling the application to the
+// regularized rate). A base-write error seen by the pacer is reported here.
+func (c *shapedConn) writePaced(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if err := c.pacedErr(); err != nil {
+		return 0, err
+	}
+	var cells [][]byte
+	if c.morph {
+		cells = c.morphCells(p)
+	} else {
+		_, cells = c.fixedCells(p)
+	}
+	if len(c.sendQ) == 0 { // a fresh burst on a drained queue restarts the surge clock
+		c.resetSurge()
+	}
+	for _, cell := range cells {
+		select {
+		case c.sendQ <- cell:
+		case <-c.paceDead: // pacer died on a base-write error; don't block forever
+			if err := c.pacedErr(); err != nil {
+				return 0, err
+			}
+			return 0, net.ErrClosed
+		case <-c.done:
+			return 0, net.ErrClosed
+		}
+	}
+	return len(p), nil
+}
+
+// pacingLoop is the RegulaTor-style sender: it wakes on the current (decaying) rate
+// interval and releases one queued cell, or a cover cell when the queue is empty, so
+// the on-wire schedule is regular and independent of how the application bursts.
+func (c *shapedConn) pacingLoop() {
+	defer c.wg.Done()
+	for {
+		timer := time.NewTimer(c.currentInterval())
+		select {
+		case <-c.done:
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		var cell []byte
+		select {
+		case cell = <-c.sendQ:
+		default:
+			if c.pace.NoPad {
+				continue // hold the rate clock but send nothing while idle
+			}
+			cell = c.coverCell()
+		}
+		c.writeMu.Lock()
+		_, err := c.base.Write(cell)
+		if err == nil {
+			c.lastWrite = time.Now()
+		}
+		c.writeMu.Unlock()
+		if err != nil {
+			c.setPaceErr(err)
+			close(c.paceDead) // unblock any Write waiting on back-pressure
+			return
+		}
+	}
+}
+
+// currentInterval converts the decayed send rate into an inter-cell delay. The rate
+// is Rate*Decay^elapsed (since the last surge), floored at MinRate.
+func (c *shapedConn) currentInterval() time.Duration {
+	elapsed := time.Since(c.surgeStart()).Seconds()
+	rate := c.pace.Rate
+	if c.pace.Decay < 1 {
+		rate = c.pace.Rate * math.Pow(c.pace.Decay, elapsed)
+	}
+	if rate < c.pace.MinRate {
+		rate = c.pace.MinRate
+	}
+	return time.Duration(float64(time.Second) / rate)
+}
+
+func (c *shapedConn) resetSurge() {
+	c.paceMu.Lock()
+	c.paceStart = time.Now()
+	c.paceMu.Unlock()
+}
+
+func (c *shapedConn) surgeStart() time.Time {
+	c.paceMu.Lock()
+	defer c.paceMu.Unlock()
+	return c.paceStart
+}
+
+func (c *shapedConn) setPaceErr(err error) {
+	c.paceMu.Lock()
+	if c.paceErrV == nil {
+		c.paceErrV = err
+	}
+	c.paceMu.Unlock()
+}
+
+func (c *shapedConn) pacedErr() error {
+	c.paceMu.Lock()
+	defer c.paceMu.Unlock()
+	return c.paceErrV
+}
+
 // coverCell builds a single cover (zero-data) cell in the active framing mode.
 func (c *shapedConn) coverCell() []byte {
 	if c.morph {
@@ -239,10 +386,29 @@ func (c *shapedConn) coverCell() []byte {
 func (c *shapedConn) Close() error {
 	c.closeOnce.Do(func() {
 		close(c.done)
-		c.wg.Wait()
+		c.wg.Wait() // pacer/cover loops have stopped; sendQ now has no concurrent reader
+		if c.paced {
+			c.flushQueue() // best-effort: write cells already accepted by Write
+		}
 		c.closeErr = c.base.Close()
 	})
 	return c.closeErr
+}
+
+// flushQueue drains any cells still queued at Close and writes them, so data the
+// application already handed to a successful Write is not silently dropped. Cells a
+// concurrent in-flight Write had not yet enqueued (it observes c.done) are lost.
+func (c *shapedConn) flushQueue() {
+	for {
+		select {
+		case cell := <-c.sendQ:
+			if _, err := c.base.Write(cell); err != nil {
+				return
+			}
+		default:
+			return
+		}
+	}
 }
 
 func (c *shapedConn) LocalAddr() net.Addr                { return c.base.LocalAddr() }

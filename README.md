@@ -38,7 +38,7 @@ combine the layers that match your adversary.
 
 | Censor move | What it keys on | obfs answer |
 |---|---|---|
-| **Passive DPI / flow analysis** | packet sizes, timing, entropy; TLS JA3/JA4 | core shaper + **morpher** (size/timing distribution) + **FRONT** (adaptive padding), **tlscamo** (browser TLS fingerprint), **WrapPacket** (UDP/QUIC datagram obfuscation) |
+| **Passive DPI / flow analysis** | packet sizes, timing, entropy; TLS JA3/JA4 | core shaper + **morpher** (size/timing distribution) + **FRONT**/**RegulaTor pacing** (burst defense), **tlscamo** (browser TLS fingerprint), **WrapPacket** (UDP/QUIC datagram obfuscation) |
 | **Active probing** | connecting to the server and checking it behaves like its cover story | **reality** — unauthenticated probes are reverse-proxied to a real fallback site |
 | **Endpoint blocking** | a static server IP / port / SNI | **hop** (rotate ports), **webrtc** (peer-to-peer data channel reached via a broker) |
 
@@ -102,6 +102,22 @@ sender-side and composes with the rest of the policy:
 shaped := obfs.Wrap(baseConn, obfs.Policy{
     CellSize: 512,
     Front:    &obfs.FrontConfig{Window: 2 * time.Second, MaxCount: 30}, // up to 30 dummy cells
+})
+```
+
+### RegulaTor-style send pacing
+
+FRONT adds traffic-*independent* padding; it does not reshape your own bursts. `Paced`
+does: a background pacer releases cells at a controlled rate that decays over time
+(like a real page load), queueing real data and filling idle slots with cover, so the
+*burst pattern* — the strongest fingerprinting signal — stops leaking. `Write`
+back-pressures to the rate. It supersedes `CoverEvery`/`Front` (the pacer owns all
+writes) and trades latency/bandwidth for unlinkability:
+
+```go
+shaped := obfs.Wrap(baseConn, obfs.Policy{
+    CellSize: 512,
+    Paced:    &obfs.PacedConfig{Rate: 1000, Decay: 0.94, MinRate: 50}, // cells/sec, decaying
 })
 ```
 
@@ -300,7 +316,7 @@ The planned techniques are all implemented, each dependency-bearing one as a
 **separate sub-module** so importing the zero-dep core never pulls it in (the same
 discipline `value-rpc/quic` uses for `quic-go`):
 
-- ✅ `obfs` core — fixed-cell shaper + **distribution-matching morpher** (`SizeSampler`/`DelaySampler`), **FRONT adaptive padding**, cover traffic, fills, and **datagram obfuscation** (`WrapPacket`) for UDP/QUIC — zero deps.
+- ✅ `obfs` core — fixed-cell shaper + **distribution-matching morpher** (`SizeSampler`/`DelaySampler`), **FRONT adaptive padding** + **RegulaTor-style pacing** (`Paced`), cover traffic, fills, and **datagram obfuscation** (`WrapPacket`) for UDP/QUIC — zero deps.
 - ✅ `obfs/hop` — port/address hopping — zero deps.
 - ✅ `obfs/tlscamo` — uTLS ClientHello mimicry + ALPN + fingerprint rotation + optional ECH (SNI encryption).
 - ✅ `obfs/reality` — Trojan-style active-probe defense (token auth + fallback).

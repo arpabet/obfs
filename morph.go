@@ -33,6 +33,24 @@ func (c *shapedConn) writeMorph(p []byte) (int, error) {
 		return 0, nil
 	}
 	var buf []byte
+	for _, cell := range c.morphCells(p) {
+		buf = append(buf, cell...)
+	}
+	c.applyDelay()
+
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	if _, err := c.base.Write(buf); err != nil {
+		return 0, err
+	}
+	c.lastWrite = time.Now()
+	return len(p), nil
+}
+
+// morphCells frames p into sampled-size, self-describing cells (one allocation each),
+// shared by the batched writeMorph flush and the per-cell paced sender.
+func (c *shapedConn) morphCells(p []byte) [][]byte {
+	var cells [][]byte
 	remaining := p
 	for len(remaining) > 0 {
 		s := c.sizeSampler()
@@ -51,18 +69,10 @@ func (c *shapedConn) writeMorph(p []byte) (int, error) {
 		binary.BigEndian.PutUint16(cell[2:4], uint16(r))   // real data length
 		copy(cell[4:4+r], remaining[:r])
 		c.fill(cell[4+r:])
-		buf = append(buf, cell...)
+		cells = append(cells, cell)
 		remaining = remaining[r:]
 	}
-	c.applyDelay()
-
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
-	if _, err := c.base.Write(buf); err != nil {
-		return 0, err
-	}
-	c.lastWrite = time.Now()
-	return len(p), nil
+	return cells
 }
 
 // readMorph reads one variable-size cell at a time, skipping cover cells, and

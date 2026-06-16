@@ -98,6 +98,57 @@ type Policy struct {
 	// a trace. It is applied by the sender, so it need not be symmetric; it composes
 	// with CoverEvery. See FrontConfig.
 	Front *FrontConfig
+
+	// Paced, when non-nil, enables RegulaTor-style send-rate regularization: outbound
+	// cells are released by a background pacer at a controlled, decaying rate instead
+	// of as soon as Write is called, so traffic *bursts* — the strongest
+	// website-fingerprinting signal, which FRONT and the morpher do not touch — are
+	// smoothed into a regular, shape-independent schedule. Real cells are queued and
+	// paced out; while the queue is empty the pacer emits cover cells to hold the rate
+	// (unless NoPad). Write applies back-pressure when the queue is full, throttling
+	// the application to the regularized rate. It supersedes CoverEvery/Front (the
+	// pacer owns all writes) and costs latency and bandwidth. See PacedConfig.
+	Paced *PacedConfig
+}
+
+// PacedConfig parameterizes RegulaTor-style send pacing (Policy.Paced). The defense
+// (Holland & Hopper, "RegulaTor: A Straightforward Website Fingerprinting Defense",
+// PETS 2022) sends at an initially high rate that decays over time — matching the
+// natural shape of a page load — so individual sites become hard to tell apart.
+type PacedConfig struct {
+	// Rate is the initial (surge) send rate in cells per second. Must be > 0 to enable
+	// pacing. The surge clock restarts when a new burst arrives on a drained queue.
+	Rate float64
+
+	// Decay multiplies the rate each second: the effective rate is Rate*Decay^elapsed,
+	// floored at MinRate. Must be in (0, 1]; 0 is treated as 1 (constant rate).
+	Decay float64
+
+	// MinRate floors the decayed rate (cells/sec) so the pacer never stalls; <= 0 uses
+	// a small default.
+	MinRate float64
+
+	// Queue bounds how many cells Write may buffer before it blocks (back-pressure);
+	// <= 0 uses a default.
+	Queue int
+
+	// NoPad, if true, suppresses cover cells while the queue is empty (the pacer idles
+	// instead), trading away constant-rate cover to save bandwidth.
+	NoPad bool
+}
+
+// withDefaults returns cfg with zero/invalid fields replaced by sensible defaults.
+func (cfg PacedConfig) withDefaults() PacedConfig {
+	if cfg.Decay <= 0 || cfg.Decay > 1 {
+		cfg.Decay = 1
+	}
+	if cfg.MinRate <= 0 {
+		cfg.MinRate = 1
+	}
+	if cfg.Queue <= 0 {
+		cfg.Queue = 1024
+	}
+	return cfg
 }
 
 // FrontConfig parameterizes FRONT-style front-loaded cover padding (Policy.Front).
