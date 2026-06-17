@@ -18,10 +18,37 @@ import (
 	"testing"
 	"time"
 
+	reality "github.com/xtls/reality"
 	"go.arpabet.com/obfs/xrayreality"
 )
 
 const sni = "www.realsite.com"
+
+// waitForDetection blocks until the library's per-Dest post-handshake record-length
+// detection (kicked off by NewListener) has finished for all ALPN variants, so the
+// server's handshake does not stall waiting for it. The map stores a bool placeholder
+// until detection completes and replaces it with a []int.
+func waitForDetection(dest string) {
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		ready := true
+		for _, alpn := range []string{"0", "1", "2"} {
+			v, ok := reality.GlobalPostHandshakeRecordsLens.Load(dest + " " + sni + " " + alpn)
+			if !ok {
+				ready = false
+				break
+			}
+			if _, placeholder := v.(bool); placeholder {
+				ready = false
+				break
+			}
+		}
+		if ready {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
 
 func selfSigned(t *testing.T, name string) tls.Certificate {
 	t.Helper()
@@ -102,21 +129,17 @@ func startServer(t *testing.T, dest string) (addr string, pub []byte, shortID []
 	return ln.Addr().String(), pub, shortID
 }
 
-// TestXray_HandshakeWireCompat: the ported client completes a REALITY handshake against
-// the GENUINE xtls/reality server (the exact code real Xray runs). Reaching a verified
-// connection proves wire compatibility of everything REALITY-specific: the server
-// authenticated our ClientHello (X25519 ECDH → HKDF → AES-256-GCM SessionID + shortId),
+// TestXray_AuthenticatedTunnel: the ported client authenticates against the GENUINE
+// xtls/reality server (the exact code real Xray runs) and a full application-data
+// round-trip works — i.e. the client is wire-compatible with Xray. The genuine server
+// authenticated our ClientHello (X25519 ECDH → HKDF → AES-256-GCM SessionID + shortId)
 // and our client verified the server's forged certificate via HMAC-SHA512(authKey,
-// ed25519Pub). After this the connection is ordinary TLS 1.3.
-//
-// Full application-data exchange is not asserted here: the library mimics the post-
-// handshake record pattern of the real borrowed site (Dest), which this test stubs with
-// a self-signed echo server rather than a live HTTPS origin. That mimicry layer is the
-// upstream library's (identical to real Xray); validate end-to-end data against a real
-// Xray peer with a real Dest.
-func TestXray_HandshakeWireCompat(t *testing.T) {
+// ed25519Pub); data then flows over ordinary TLS 1.3 (incl. the library's disguised
+// post-handshake dummy NewSessionTicket, which requires the same uTLS build Xray pins).
+func TestXray_AuthenticatedTunnel(t *testing.T) {
 	dest, _ := startDest(t, "BORROWED-SITE")
 	addr, pub, shortID := startServer(t, dest)
+	waitForDetection(dest) // let the library's Dest record-length detection populate
 
 	raw, err := net.Dial("tcp", addr)
 	if err != nil {
@@ -131,7 +154,19 @@ func TestXray_HandshakeWireCompat(t *testing.T) {
 		raw.Close()
 		t.Fatalf("REALITY handshake against the genuine xtls/reality server failed: %v", err)
 	}
-	conn.Close()
+	defer conn.Close()
+
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := conn.Write([]byte("ping")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	buf := make([]byte, 4)
+	if _, err := io.ReadFull(conn, buf); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(buf) != "ping" {
+		t.Fatalf("echo = %q, want ping", buf)
+	}
 }
 
 // TestXray_ProbePassthrough: a plain TLS probe (no REALITY auth) is relayed by the

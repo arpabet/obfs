@@ -70,17 +70,18 @@ This reproduces Xray's exact on-wire protocol:
 
 ## Testing & caveats
 
-`xrayreality_test.go` verifies, against the **genuine** `xtls/reality` server:
+`xrayreality_test.go` verifies, end-to-end against the **genuine** `xtls/reality` server
+(the exact code real Xray runs):
 
-- `TestXray_HandshakeWireCompat` — the ported client completes a REALITY handshake and
-  verifies the server's forged certificate (the wire-compatibility proof: everything
-  REALITY-specific is in the handshake; after it the connection is ordinary TLS 1.3).
+- `TestXray_AuthenticatedTunnel` — the ported client authenticates, verifies the server's
+  forged certificate, and a full **application-data round-trip** succeeds.
 - `TestXray_ProbePassthrough` — a plain TLS probe is relayed to `Dest` and sees that
   site's certificate.
 - `TestXray_WrongKey` — a wrong server key fails the HMAC verification.
 
-The library mimics the **post-handshake record pattern of the real `Dest`**, so full
-application-data exchange should be validated against a real Xray peer with a real
-HTTPS `Dest`; a self-signed loopback stub does not exercise that mimicry layer. As with
-all of `obfs`, run a traffic shaper **inside** the tunnel (REALITY only hides the
-handshake) and use responsibly. See [REALITY.md](../REALITY.md) for the full design.
+Two things are load-bearing for interop and are handled here: the client pins the **same
+uTLS build Xray uses** (a post-v1.8.2 commit — released v1.8.2 mis-parses the server's
+disguised post-handshake record), and the server sets `SessionTicketsDisabled` so it emits
+only REALITY's dummy (disguised) NewSessionTicket rather than a full one. As with all of
+`obfs`, run a traffic shaper **inside** the tunnel (REALITY only hides the handshake) and
+use responsibly. See [REALITY.md](../REALITY.md) for the full design.

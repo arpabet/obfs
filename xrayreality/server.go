@@ -64,16 +64,20 @@ func Listener(base net.Listener, cfg ServerConfig) net.Listener {
 		names[n] = true
 	}
 	return reality.NewListener(base, &reality.Config{
-		DialContext:  (&net.Dialer{}).DialContext, // used to reach Dest; required (nil panics)
-		Show:         cfg.Show,
-		Type:         "tcp",
-		Dest:         cfg.Dest,
-		ServerNames:  names,
-		PrivateKey:   cfg.PrivateKey,
-		ShortIds:     shortIDs,
-		MaxTimeDiff:  cfg.MaxTimeDiff,
-		MinClientVer: cfg.MinClientVer,
-		MaxClientVer: cfg.MaxClientVer,
+		DialContext: (&net.Dialer{}).DialContext, // used to reach Dest; required (nil panics)
+		Show:        cfg.Show,
+		Type:        "tcp",
+		// REALITY emits its own dummy NewSessionTicket (disguised as application data) to
+		// mirror Dest. A full standard session ticket would not survive that disguising
+		// and breaks the client's first read, so suppress the standard one.
+		SessionTicketsDisabled: true,
+		Dest:                   cfg.Dest,
+		ServerNames:            names,
+		PrivateKey:             cfg.PrivateKey,
+		ShortIds:               shortIDs,
+		MaxTimeDiff:            cfg.MaxTimeDiff,
+		MinClientVer:           cfg.MinClientVer,
+		MaxClientVer:           cfg.MaxClientVer,
 	})
 }
 
