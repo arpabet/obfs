@@ -10,6 +10,14 @@ module a change applies to.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-06-16
+
+Coordinated release. Per-module tags: **`v0.2.0`** (core + `hop`),
+**`tlscamo/v0.2.0`**, **`reality/v0.2.0`**, and the new **`xreality/v0.1.0`** and
+**`xrayreality/v0.1.0`**; `webrtc` stays at `v0.1.0` (unchanged). The
+distribution-matching morpher (`SizeSampler`/`DelaySampler`), committed after the
+`v0.1.0` tag, also ships in core `v0.2.0`.
+
 ### Added
 
 - **Datagram obfuscation** (`obfs.WrapPacket`, `PacketPolicy`) in the zero-dep core
@@ -96,5 +104,6 @@ Initial public release. Tagged per module: `v0.1.0` (core + `hop`),
 - **`obfs/webrtc`** — Snowflake-style WebRTC data-channel transport with pluggable
   signaling (`Signaler`/`OfferSource`); no built-in broker.
 
-[Unreleased]: https://github.com/arpabet/obfs/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/arpabet/obfs/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/arpabet/obfs/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/arpabet/obfs/releases/tag/v0.1.0

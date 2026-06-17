@@ -176,6 +176,27 @@ jobs:
         working-directory: webrtc
         run: go test -race -cover ./...
 
+  # The runnable examples are their own modules (heavy deps stay out of the core); keep
+  # them compiling. They resolve the core/tlscamo via local replace directives.
+  examples:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: [ '1.25.x', '1.26.x' ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Build & vet fullstack
+        working-directory: examples/fullstack
+        run: |
+          go build ./...
+          go vet ./...
+
   bench:
     runs-on: ubuntu-latest
     steps:
