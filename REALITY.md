@@ -186,7 +186,7 @@ actually built:
 | **1b-i** | `obfs/xreality` | Server **decision pipeline**: `ParseClientHello` (random/session-id/SNI/X25519 share, fully bounds-checked) + `Authenticate` (parse → ECDH → AEAD verify → replay window → shortId gate → route). Pure, stdlib-only, fully tested. | none | **done** |
 | **1b-ii** | `obfs/xreality` | Live **TLS plumbing**: `Client` (uTLS browser hello, reuses the hello's X25519 key share as the REALITY ephemeral, injects the sealed SessionID) + `Listener` (raw-peek → `Authenticate` → terminate *or* raw-splice to `Dest`). Server identity is proven by a **post-handshake channel-bound HMAC** (TLS exporter keying material), which replaces REALITY's in-handshake forged certificate — so **no TLS fork is needed**. | uTLS | **done (no-fork variant)** |
 | **2** | `servion/vrpc/examples/xreality` | A `Transport` bean over `obfs/xreality` (server `Listener` + client `Dialer`), as its own module so uTLS stays out of `servion/vrpc`; runnable end-to-end demo (authenticated tunnel + probe→borrowed-site passthrough). | uTLS (in the example module only) | **done** |
-| **3** | docs | The "REALITY + inner obfs shaping" recipe (handshake **and** traffic-shape defense together). | none | open |
+| **3** | docs + example | The "REALITY + inner obfs shaping" recipe (§8) — handshake **and** traffic-shape defense together; demonstrated and exercised in the `servion/vrpc/examples/xreality` demo. | none | **done** |
 
 Phases 1a, 1b-i, and 1b-ii (`obfs/xreality`) are implemented and tested: the auth core
 (`ClientSessionID` / `ServerAuthenticate` / `CertHMAC`), the server decision pipeline
@@ -214,6 +214,72 @@ be — see below). For Xray interop specifically, the vendored/forked TLS path i
 still be required.
 
 value-rpc is untouched in every phase.
+
+## 8. The full recipe: REALITY + inner obfs shaping
+
+REALITY (like any handshake-camouflage layer) defends exactly one thing: the
+**handshake**. To a censor the ClientHello looks like a browser reaching a real site,
+and an active probe gets that real site. But once the tunnel is up, the **shape** of
+your own traffic — per-operation packet sizes and timing — is unchanged, and that is a
+separate, independent fingerprint. Real-world testing bears this out: REALITY flows in
+Iran were still blocked over time via post-handshake distinguishers (Xray #2778/#3269).
+
+So the recipe is to run **both** layers, and the layering is fixed: the REALITY/TLS
+layer is **outermost** (it is what the censor sees on the wire), and the `obfs` shaper
+goes **inside** the tunnel (it re-frames the application's bytes before they are
+encrypted):
+
+```
+  value-rpc / gRPC / HTTP            your protocol (innermost)
+        │
+  obfs shaping  (cells / morpher /   hides per-operation size & timing,
+        │        FRONT / pacer)      INSIDE the encrypted tunnel
+  obfs/xreality (REALITY handshake)  browser-like handshake to a borrowed site;
+        │                            the OUTERMOST visible layer
+  TCP                                reachability
+        │
+     the network
+```
+
+Apply the shaper **symmetrically** (both peers `obfs.Wrap` with a matching `CellSize`,
+or both set a `SizeSampler`). With value-rpc this is one extra `obfs.Wrap` at the seam
+the REALITY `Transport` already returns — REALITY hands back a `net.Conn`, the shaper
+wraps it, and value-rpc frames over the shaped conn:
+
+```go
+// inside the servionvrpc.Transport (both ends use the same `shaping` policy)
+var shaping = obfs.Policy{
+    CellSize: 512,                                              // every wire frame identical
+    Front:    &obfs.FrontConfig{Window: time.Second, MaxCount: 8}, // front-loaded cover
+    // or, to match a cover protocol's size distribution:
+    // SizeSampler: obfs.SampledSize(...), DelaySampler: obfs.PoissonDelay(...),
+    // or, to smooth bursts:  Paced: &obfs.PacedConfig{Rate: 1000, Decay: 0.94},
+}
+
+// server: wrap each accepted REALITY tunnel before value-rpc sees it
+func() (io.ReadWriteCloser, error) {
+    c, err := realityListener.Accept()
+    if err != nil { return nil, err }
+    return obfs.Wrap(c, shaping), nil
+}
+
+// client: wrap the dialed REALITY tunnel with the same policy
+func() (io.ReadWriteCloser, error) {
+    c, err := realityDial()
+    if err != nil { return nil, err }
+    return obfs.Wrap(c, shaping), nil
+}
+```
+
+This exact composition is wired and exercised end-to-end in
+`servion/vrpc/examples/xreality` (`GOWORK=off go run .`): an authenticated value-rpc
+call succeeds with its bytes shaped into fixed cells + FRONT padding **inside** a
+REALITY tunnel, while an unauthenticated probe is still spliced to the borrowed site.
+
+Cost vs. benefit, as always: each shaping feature trades bandwidth/latency for
+unlinkability — size on `CellSize`/morpher, idle cover on `CoverEvery`/`Front`, burst
+smoothing on `Paced`. Tune to the workload; the handshake layer (REALITY) and the
+shape layer (`obfs`) are independent, so add only what your threat model needs.
 
 ## References
 

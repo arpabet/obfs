@@ -229,11 +229,12 @@ and value-rpc — is designed in [REALITY.md](REALITY.md).
 
 ### REALITY auth core (`obfs/xreality`)
 
-The full REALITY transport's hard part is TLS-stack surgery, which isn't responsibly
-one-shottable. But its security-critical, TLS-independent core is — so `obfs/xreality`
-implements and fully tests exactly that piece, de-risking the rest of Phase 1.
-
-A separate, **stdlib-only, zero-dependency** module:
+A REALITY-style transport: a browser-mimicked TLS handshake to a *borrowed* real site,
+with auth smuggled in the ClientHello so the server decides — before terminating TLS —
+whether to serve the tunnel or splice the connection through to the real site. Unlike
+full Xray REALITY it needs **no forked TLS stack**: server identity is proven by a
+post-handshake channel-bound HMAC instead of a forged certificate (so it is **not**
+Xray-wire-compatible — fine, both peers are ours). A separate module (dep: uTLS):
 
 - `GenerateX25519()` — X25519 keypairs (`crypto/ecdh`).
 - `ClientSessionID(serverPub, clientEphemeral, clientRandom, shortID)` — ECDH →
@@ -257,10 +258,11 @@ A separate, **stdlib-only, zero-dependency** module:
   material, which replaces REALITY's in-handshake forged certificate — so it runs on
   stock `crypto/tls` + uTLS with **no TLS fork**.
 
-Deliberately **not** wire-compatible with Xray (both peers are ours), so the layout is
-clean: `SessionID = AES-256-GCM(plaintext=[8B time][8B shortId])` exactly filling the
-32-byte field. The full design — including the path to Xray interop (vendored MPL TLS) —
-is in [REALITY.md](REALITY.md).
+The `SessionID = AES-256-GCM(plaintext=[8B time][8B shortId])` exactly fills the 32-byte
+field. REALITY only hides the *handshake* — run an `obfs` shaper **inside** the tunnel to
+also hide the post-handshake traffic shape (the full recipe is REALITY.md §8, wired and
+run end-to-end in `servion/vrpc/examples/xreality`). The complete design — including the
+path to Xray interop (vendored MPL TLS) — is in [REALITY.md](REALITY.md).
 
 ### WebRTC data channel (`obfs/webrtc`)
 
