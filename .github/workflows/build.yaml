@@ -122,6 +122,33 @@ jobs:
         working-directory: xreality
         run: go test -race -cover ./...
 
+  # xrayreality is a separate MPL-2.0 module (go.arpabet.com/obfs/xrayreality) wrapping
+  # the forked-TLS xtls/reality for Xray wire-compatibility; it gets its own job.
+  xrayreality:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: [ '1.25.x', '1.26.x' ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Build
+        working-directory: xrayreality
+        run: go build ./...
+
+      - name: Vet
+        working-directory: xrayreality
+        run: go vet ./...
+
+      - name: Test
+        working-directory: xrayreality
+        run: go test -race -cover ./...
+
   # webrtc is a separate module (go.arpabet.com/obfs/webrtc) so the heavy pion tree
   # stays out of the core; it gets its own job.
   webrtc:
@@ -190,4 +217,8 @@ jobs:
 
       - name: govulncheck (xreality submodule)
         working-directory: xreality
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+      - name: govulncheck (xrayreality submodule)
+        working-directory: xrayreality
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...

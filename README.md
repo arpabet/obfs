@@ -51,6 +51,7 @@ combine the layers that match your adversary.
 | `obfs/tlscamo` | **uTLS ClientHello mimicry** — TLS client whose JA3/JA4 matches a real browser, with ALPN, fingerprint rotation, and optional **Encrypted ClientHello (ECH)** to hide the SNI (separate module) | `refraction-networking/utls` |
 | `obfs/reality` | **Trojan-style active-probe defense** — token-authenticated TLS tunnel; unauthenticated probes are reverse-proxied to a real fallback site, plus optional **SNI-passthrough** (wrong-SNI scanners get raw-spliced to a real upstream's genuine cert) (separate module) | `obfs/tlscamo` (→ utls) |
 | `obfs/xreality` | **REALITY-style transport** — browser-mimicked uTLS ClientHello with a sealed X25519-authenticated SessionID; probes raw-spliced to the real borrowed site; server proven by a post-handshake channel-bound HMAC (no TLS fork; not Xray-wire-compatible) (separate module) | `refraction-networking/utls` |
+| `obfs/xrayreality` | **Xray-wire-compatible REALITY** — genuine `xtls/reality` server + ported Xray client handshake; interoperates with real Xray endpoints (separate **MPL-2.0** module; heavier forked-TLS dep) | `xtls/reality`, `utls` |
 | `obfs/webrtc` | **Snowflake-style WebRTC data channel** — carry a `net.Conn` over a WebRTC data channel (looks like a call); pluggable signaling, no built-in broker (separate module) | `pion/webrtc` |
 
 ## Install
@@ -365,6 +366,7 @@ discipline `value-rpc/quic` uses for `quic-go`):
 - ✅ `obfs/tlscamo` — uTLS ClientHello mimicry + ALPN + fingerprint rotation + optional ECH (SNI encryption).
 - ✅ `obfs/reality` — Trojan-style active-probe defense (token auth + fallback + optional SNI-passthrough). Full REALITY design: [REALITY.md](REALITY.md).
 - ✅ `obfs/xreality` — REALITY-style transport (`Client`/`Dialer`/`Listener`): browser-mimicked uTLS ClientHello with a sealed SessionID, X25519 auth, probe passthrough to the real borrowed site, and server identity proven by a post-handshake channel-bound HMAC (no TLS fork; not Xray-wire-compatible) — see [REALITY.md](REALITY.md).
+- ✅ `obfs/xrayreality` — **Xray-wire-compatible** REALITY (genuine `xtls/reality` server + ported Xray client handshake); **MPL-2.0**. For interoperating with real Xray endpoints — see [REALITY.md §9](REALITY.md).
 - ✅ `obfs/webrtc` — Snowflake-style WebRTC data-channel transport.
 
 Composition (the layers stack; apply from the wire inward): port hopping →

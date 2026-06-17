@@ -46,6 +46,14 @@ module a change applies to.
   HMAC** over TLS exporter keying material — which replaces REALITY's in-handshake
   forged certificate, so it runs on stock `crypto/tls` + uTLS with **no TLS fork**. Not
   wire-compatible with Xray (both peers are ours); adds a uTLS dependency.
+- **`obfs/xrayreality`** (new **MPL-2.0** submodule) — a **wire-compatible** Xray REALITY
+  transport. The server is the genuine `github.com/xtls/reality` listener; the client is a
+  focused port of Xray-core's `reality.UClient` (uTLS ClientHello with the X25519 key share
+  reused as the REALITY ephemeral, the AES-256-GCM-sealed SessionID, and HMAC-SHA512 forged-
+  certificate verification). It is MPL-2.0 (not BUSL) because it depends on / ports MPL code.
+  Use `obfs/xreality` unless you must interoperate with real Xray endpoints. Tests verify the
+  handshake authenticates and the certificate verifies against the genuine server, plus probe
+  passthrough and wrong-key rejection.
 - **SNI-passthrough** in `obfs/reality` (`ServerConfig.ServerNames` + `Passthrough`)
   — the listener peeks each ClientHello and raw-splices any connection whose SNI does
   not match to a real TLS upstream, so probes/IP-range scanners using the wrong (or

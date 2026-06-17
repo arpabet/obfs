@@ -26,9 +26,9 @@ The shipping `obfs/reality` package today is **Trojan-grade** (server presents i
   uTLS browser hello's X25519 key share + injects the sealed SessionID on the client,
   and proves server identity with a **post-handshake channel-bound HMAC** instead of a
   forged certificate — so it runs on stock `crypto/tls` + the uTLS public API, no fork.
-  The one scenario that still needs the fork is **wire-compatibility with real Xray
-  servers**, for which vendoring Xray's MPL-2.0 TLS code is the path (no license
-  conflict — obfs's BUSL Change License is already MPL-2.0).
+  For **wire-compatibility with real Xray servers**, `obfs/xrayreality` (§9) wraps the
+  upstream forked TLS (`xtls/reality`) and ports Xray's client handshake — a separate
+  MPL-2.0 module (no license conflict; obfs's BUSL Change License is already MPL-2.0).
 - **REALITY only fixes the handshake.** Real-world GFW testing still blocked it via
   *post-handshake traffic shape*. That is exactly what the rest of `obfs`
   (morpher / FRONT / RegulaTor pacer) defends — run them **inside** the tunnel. This
@@ -187,6 +187,7 @@ actually built:
 | **1b-ii** | `obfs/xreality` | Live **TLS plumbing**: `Client` (uTLS browser hello, reuses the hello's X25519 key share as the REALITY ephemeral, injects the sealed SessionID) + `Listener` (raw-peek → `Authenticate` → terminate *or* raw-splice to `Dest`). Server identity is proven by a **post-handshake channel-bound HMAC** (TLS exporter keying material), which replaces REALITY's in-handshake forged certificate — so **no TLS fork is needed**. | uTLS | **done (no-fork variant)** |
 | **2** | `servion/vrpc/examples/xreality` | A `Transport` bean over `obfs/xreality` (server `Listener` + client `Dialer`), as its own module so uTLS stays out of `servion/vrpc`; runnable end-to-end demo (authenticated tunnel + probe→borrowed-site passthrough). | uTLS (in the example module only) | **done** |
 | **3** | docs + example | The "REALITY + inner obfs shaping" recipe (§8) — handshake **and** traffic-shape defense together; demonstrated and exercised in the `servion/vrpc/examples/xreality` demo. | none | **done** |
+| **X** | `obfs/xrayreality` | **Xray wire-compatibility** (§9): genuine `xtls/reality` server + ported Xray client handshake; MPL-2.0 module. Handshake/auth verified against the genuine server. | xtls/reality (MPL), uTLS | **done** |
 
 Phases 1a, 1b-i, and 1b-ii (`obfs/xreality`) are implemented and tested: the auth core
 (`ClientSessionID` / `ServerAuthenticate` / `CertHMAC`), the server decision pipeline
@@ -210,8 +211,37 @@ TLS-1.3-encrypted, censor-invisible check. (One uTLS quirk: the browser preset's
 leaving the on-wire fingerprint untouched.)
 
 The trade-off: this is **not wire-compatible with Xray REALITY** (it never was meant to
-be — see below). For Xray interop specifically, the vendored/forked TLS path in §5 would
-still be required.
+be — see below). For Xray interop specifically, use `obfs/xrayreality` (§9), which wraps
+the upstream forked TLS (`xtls/reality`) and ports Xray's client handshake.
+
+## 9. Xray wire-compatibility — `obfs/xrayreality`
+
+`obfs/xreality` (§5 option 0) is deliberately not on Xray's wire. For talking to **real
+Xray endpoints**, `obfs/xrayreality` is a separate **MPL-2.0** module (its dependencies
+force MPL) that reproduces Xray's exact protocol:
+
+- **Server** — the genuine `github.com/xtls/reality` listener (the same forked-TLS code
+  real Xray runs). It authenticates the ClientHello, terminates TLS with a forged
+  certificate for authenticated clients, and relays everyone else to `Dest`.
+- **Client** — a focused port of Xray-core's `reality.UClient` (MPL-2.0): a uTLS browser
+  ClientHello whose X25519 key share is reused as the REALITY ephemeral; the 32-byte
+  SessionID `[3B ver][1B reserved][4B time][8B shortId]` is AES-256-GCM-sealed under
+  `HKDF-SHA256(ECDH, salt=random[:20], "REALITY")`, `nonce=random[20:]`, `AAD=ClientHello`;
+  and the server's forged certificate is verified by `HMAC-SHA512(authKey, ed25519Pub)`
+  (the port reads the cert from uTLS's `VerifyPeerCertificate` rawCerts instead of Xray's
+  `unsafe` field access).
+
+This realizes §5 option 1 (vendor the MPL TLS) without re-vendoring a whole TLS fork — it
+imports `xtls/reality` directly. The package tests verify, against the genuine
+`xtls/reality` server, that the ported client's **handshake authenticates and the forged
+certificate verifies** (the wire-compatibility guarantee — everything REALITY-specific is
+in the handshake; after it the stream is ordinary TLS 1.3), that probes are passed through
+to `Dest`, and that a wrong key is rejected. Full application-data exchange depends on the
+library's post-handshake record mimicry of a real `Dest`, so validate it against a live
+Xray peer; see the module README.
+
+Choose per need: `obfs/xreality` (lighter, BUSL, not Xray-compatible) vs.
+`obfs/xrayreality` (Xray-compatible, MPL, forked-TLS dependency).
 
 value-rpc is untouched in every phase.
 
