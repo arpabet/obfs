@@ -185,7 +185,7 @@ actually built:
 | **1a** | `obfs/xreality` | REALITY **auth/crypto core** (X25519 ECDH, HKDF auth key, AEAD SessionID seal/open, replay window, cert-binding HMAC) — stdlib only, fully unit-tested. | none | **done** |
 | **1b-i** | `obfs/xreality` | Server **decision pipeline**: `ParseClientHello` (random/session-id/SNI/X25519 share, fully bounds-checked) + `Authenticate` (parse → ECDH → AEAD verify → replay window → shortId gate → route). Pure, stdlib-only, fully tested. | none | **done** |
 | **1b-ii** | `obfs/xreality` | Live **TLS plumbing**: `Client` (uTLS browser hello, reuses the hello's X25519 key share as the REALITY ephemeral, injects the sealed SessionID) + `Listener` (raw-peek → `Authenticate` → terminate *or* raw-splice to `Dest`). Server identity is proven by a **post-handshake channel-bound HMAC** (TLS exporter keying material), which replaces REALITY's in-handshake forged certificate — so **no TLS fork is needed**. | uTLS | **done (no-fork variant)** |
-| **2** | `servion/vrpc` | `RealityTransport` bean + keypair / shortId / `dest` config + rotation in servion's control plane. | none beyond 1b | open |
+| **2** | `servion/vrpc/examples/xreality` | A `Transport` bean over `obfs/xreality` (server `Listener` + client `Dialer`), as its own module so uTLS stays out of `servion/vrpc`; runnable end-to-end demo (authenticated tunnel + probe→borrowed-site passthrough). | uTLS (in the example module only) | **done** |
 | **3** | docs | The "REALITY + inner obfs shaping" recipe (handshake **and** traffic-shape defense together). | none | open |
 
 Phases 1a, 1b-i, and 1b-ii (`obfs/xreality`) are implemented and tested: the auth core
