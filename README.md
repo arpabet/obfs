@@ -54,6 +54,18 @@ combine the layers that match your adversary.
 | `obfs/xrayreality` | **Xray-wire-compatible REALITY** — genuine `xtls/reality` server + ported Xray client handshake; interoperates with real Xray endpoints (separate **MPL-2.0** module; heavier forked-TLS dep) | `xtls/reality`, `utls` |
 | `obfs/webrtc` | **Snowflake-style WebRTC data channel** — carry a `net.Conn` over a WebRTC data channel (looks like a call); pluggable signaling, no built-in broker (separate module) | `pion/webrtc` |
 
+## Documentation & examples
+
+- Per-module guides: [hop](hop), [tlscamo](tlscamo), [reality](reality),
+  [xreality](xreality), [xrayreality](xrayreality), [webrtc](webrtc).
+- **Runnable examples**: [`examples/`](examples) — start with
+  [`examples/fullstack`](examples/fullstack) (hop + tlscamo + shaping). Inline snippets:
+  the Go [example functions](https://pkg.go.dev/go.arpabet.com/obfs#pkg-examples).
+- **REALITY design** (the two REALITY transports, the protocol, and the recipe for
+  combining handshake + traffic-shape defense): [REALITY.md](REALITY.md).
+- **Releasing** (multi-module tag scheme, order, checklist): [RELEASING.md](RELEASING.md).
+- Changes: [CHANGELOG.md](CHANGELOG.md).
+
 ## Install
 
 ```
