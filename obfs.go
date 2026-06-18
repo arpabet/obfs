@@ -21,8 +21,9 @@
 //	shaped := obfs.Wrap(baseConn, obfs.Policy{CellSize: 512})
 //
 //	// With value-rpc, hand the shaped conn to the bring-your-own-conn seam:
-//	dialer := valuerpc.NewFuncDialer(func() (io.ReadWriteCloser, error) {
-//		c, err := net.Dial("tcp", addr)
+//	dialer := valuerpc.NewFuncDialer(func(ctx context.Context) (io.ReadWriteCloser, error) {
+//		var d net.Dialer
+//		c, err := d.DialContext(ctx, "tcp", addr)
 //		if err != nil {
 //			return nil, err
 //		}

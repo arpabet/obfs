@@ -93,7 +93,7 @@ The seam already exists and is exactly the shape REALITY needs
 (`value-rpc/valuerpc/transport_conn.go`):
 
 ```go
-func NewFuncDialer(connect func() (io.ReadWriteCloser, error), writeTimeout time.Duration) Dialer
+func NewFuncDialer(connect func(ctx context.Context) (io.ReadWriteCloser, error), writeTimeout time.Duration) Dialer
 func NewAcceptListener(accept func() (io.ReadWriteCloser, error), addr net.Addr, stop func() error, writeTimeout time.Duration) Listener
 ```
 

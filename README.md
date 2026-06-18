@@ -158,8 +158,9 @@ keep a real tunnel (QUIC's own TLS) inside it.
 
 ```go
 // Client
-dialer := valuerpc.NewFuncDialer(func() (io.ReadWriteCloser, error) {
-    base, err := net.Dial("tcp", addr) // ideally a TLS conn — see caveats
+dialer := valuerpc.NewFuncDialer(func(ctx context.Context) (io.ReadWriteCloser, error) {
+    var d net.Dialer
+    base, err := d.DialContext(ctx, "tcp", addr) // ideally a TLS conn — see caveats
     if err != nil {
         return nil, err
     }
@@ -186,8 +187,9 @@ dep: uTLS) and must be the **outermost** layer — wrap the raw TCP conn, and pu
 ```go
 import "go.arpabet.com/obfs/tlscamo"
 
-dialer := valuerpc.NewFuncDialer(func() (io.ReadWriteCloser, error) {
-    raw, err := net.Dial("tcp", addr)
+dialer := valuerpc.NewFuncDialer(func(ctx context.Context) (io.ReadWriteCloser, error) {
+    var d net.Dialer
+    raw, err := d.DialContext(ctx, "tcp", addr)
     if err != nil {
         return nil, err
     }
@@ -333,7 +335,7 @@ Wiring that whole stack into value-rpc's bring-your-own-connection seam:
 
 ```go
 hopDial, _ := hop.Dialer(addrs, 30*time.Second, nil)
-dialer := valuerpc.NewFuncDialer(func() (io.ReadWriteCloser, error) {
+dialer := valuerpc.NewFuncDialer(func(ctx context.Context) (io.ReadWriteCloser, error) {
     base, err := hopDial() // reachability / rendezvous
     if err != nil {
         return nil, err

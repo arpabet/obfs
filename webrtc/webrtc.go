@@ -24,9 +24,9 @@
 //
 // # value-rpc integration
 //
-//	client: valuerpc.NewFuncDialer(func() (io.ReadWriteCloser, error) {
+//	client: valuerpc.NewFuncDialer(func(ctx context.Context) (io.ReadWriteCloser, error) {
 //	            return webrtc.Dial(ctx, signaler, cfg)
-//	        })
+//	        }, writeTimeout)
 //	server: valuerpc.NewAcceptListener over webrtc.Listener(offerSource, cfg).Accept
 //
 // # Caveats
