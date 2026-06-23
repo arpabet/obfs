@@ -12,15 +12,16 @@
 package hop
 
 import (
-	"errors"
 	"net"
 	"sync"
 	"time"
+
+	"golang.org/x/xerrors"
 )
 
 var (
-	errNoAddrs   = errors.New("hop: no addresses")
-	errBadPeriod = errors.New("hop: period must be > 0")
+	errNoAddrs   = xerrors.New("hop: no addresses")
+	errBadPeriod = xerrors.New("hop: period must be > 0")
 )
 
 // Dialer returns a dial function that, on each call, selects the address for the

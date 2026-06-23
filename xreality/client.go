@@ -7,12 +7,12 @@ package xreality
 
 import (
 	"crypto/hmac"
-	"errors"
 	"io"
 	"net"
 	"time"
 
 	utls "github.com/refraction-networking/utls"
+	"golang.org/x/xerrors"
 )
 
 // DefaultFingerprint is the browser ClientHello mimicked when none is set.
@@ -31,8 +31,8 @@ const (
 var ekmContext = []byte("v1")
 
 var (
-	errNoX25519   = errors.New("xreality: fingerprint has no usable X25519 key share")
-	errServerAuth = errors.New("xreality: server channel authentication failed")
+	errNoX25519   = xerrors.New("xreality: fingerprint has no usable X25519 key share")
+	errServerAuth = xerrors.New("xreality: server channel authentication failed")
 )
 
 // ClientConfig configures the REALITY client dialer.

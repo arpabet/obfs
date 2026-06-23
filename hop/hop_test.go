@@ -6,12 +6,12 @@
 package hop_test
 
 import (
-	"errors"
 	"net"
 	"testing"
 	"time"
 
 	"go.arpabet.com/obfs/hop"
+	"golang.org/x/xerrors"
 )
 
 // freePort returns a currently-free localhost address. There is a small race
@@ -91,7 +91,7 @@ func TestMultiListener_Close(t *testing.T) {
 func TestDialer_Rotates(t *testing.T) {
 	addrs := []string{"a:1", "b:2", "c:3"}
 	seen := map[string]bool{}
-	errStop := errors.New("stop")
+	errStop := xerrors.New("stop")
 	dial, err := hop.Dialer(addrs, time.Millisecond, func(a string) (net.Conn, error) {
 		seen[a] = true
 		return nil, errStop

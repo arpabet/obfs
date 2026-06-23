@@ -5,7 +5,7 @@
 
 package xreality
 
-import "errors"
+import "golang.org/x/xerrors"
 
 const (
 	extServerName uint16 = 0x0000
@@ -15,9 +15,9 @@ const (
 
 var (
 	// ErrNotTLS is returned when a record is not a TLS handshake record.
-	ErrNotTLS = errors.New("xreality: not a TLS handshake record")
+	ErrNotTLS = xerrors.New("xreality: not a TLS handshake record")
 	// ErrBadHello is returned when a ClientHello cannot be parsed.
-	ErrBadHello = errors.New("xreality: malformed ClientHello")
+	ErrBadHello = xerrors.New("xreality: malformed ClientHello")
 )
 
 // ClientHelloInfo holds the REALITY-relevant fields a server reads out of a peeked

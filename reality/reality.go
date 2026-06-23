@@ -55,7 +55,6 @@ import (
 	"bytes"
 	"crypto/subtle"
 	"crypto/tls"
-	"errors"
 	"io"
 	"net"
 	"strings"
@@ -63,11 +62,12 @@ import (
 	"time"
 
 	"go.arpabet.com/obfs/tlscamo"
+	"golang.org/x/xerrors"
 )
 
 var (
-	errNotTLS   = errors.New("reality: not a TLS handshake record")
-	errBadHello = errors.New("reality: malformed ClientHello")
+	errNotTLS   = xerrors.New("reality: not a TLS handshake record")
+	errBadHello = xerrors.New("reality: malformed ClientHello")
 )
 
 // DefaultHandshakeTimeout bounds the TLS handshake plus the token read, so a

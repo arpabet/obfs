@@ -7,20 +7,20 @@ package obfs_test
 
 import (
 	"bytes"
-	"errors"
 	"io"
 	"net"
 	"testing"
 	"time"
 
 	"go.arpabet.com/obfs"
+	"golang.org/x/xerrors"
 )
 
 // failWriteConn is a net.Conn whose Write always fails, to drive the pacer's
 // base-write error path.
 type failWriteConn struct{ net.Conn }
 
-func (failWriteConn) Write([]byte) (int, error) { return 0, errors.New("boom") }
+func (failWriteConn) Write([]byte) (int, error) { return 0, xerrors.New("boom") }
 
 // TestPaced_RoundTrip: a paced sender's cells, released by the background pacer and
 // interleaved with cover, reconstruct the original stream at a normal receiver.

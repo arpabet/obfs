@@ -6,6 +6,7 @@ require (
 	github.com/refraction-networking/utls v1.8.3-0.20260301010127-aa6edf4b11af
 	github.com/xtls/reality v0.0.0-20260322125925-9234c772ba8f
 	golang.org/x/crypto v0.48.0
+	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da
 )
 
 require (

@@ -32,12 +32,12 @@ import (
 	"crypto/sha512"
 	"crypto/x509"
 	"encoding/binary"
-	"errors"
 	"net"
 	"time"
 
 	utls "github.com/refraction-networking/utls"
 	"golang.org/x/crypto/hkdf"
+	"golang.org/x/xerrors"
 )
 
 // DefaultFingerprint is the browser ClientHello mimicked when none is set. It must be a
@@ -55,10 +55,10 @@ const DefaultHandshakeTimeout = 15 * time.Second
 const sessionIDOffset = 39 // fixed location of the 32-byte SessionID inside the ClientHello
 
 var (
-	errNoTLS13      = errors.New("xrayreality: fingerprint does not offer a TLS 1.3 X25519 key share")
-	errBadHello     = errors.New("xrayreality: ClientHello too short to carry a SessionID")
-	errNotVerified  = errors.New("xrayreality: server certificate failed REALITY HMAC verification (MITM or wrong key)")
-	errNoServerName = errors.New("xrayreality: ServerName is required")
+	errNoTLS13      = xerrors.New("xrayreality: fingerprint does not offer a TLS 1.3 X25519 key share")
+	errBadHello     = xerrors.New("xrayreality: ClientHello too short to carry a SessionID")
+	errNotVerified  = xerrors.New("xrayreality: server certificate failed REALITY HMAC verification (MITM or wrong key)")
+	errNoServerName = xerrors.New("xrayreality: ServerName is required")
 )
 
 // ClientConfig configures the REALITY client. It is wire-compatible with Xray.

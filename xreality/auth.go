@@ -59,8 +59,9 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/binary"
-	"errors"
 	"time"
+
+	"golang.org/x/xerrors"
 )
 
 const (
@@ -81,13 +82,13 @@ const (
 
 var (
 	// ErrBadRandom is returned when the ClientHello random is not ClientRandomLen.
-	ErrBadRandom = errors.New("xreality: client random must be 32 bytes")
+	ErrBadRandom = xerrors.New("xreality: client random must be 32 bytes")
 	// ErrShortID is returned when a shortId exceeds ShortIDLen.
-	ErrShortID = errors.New("xreality: shortId exceeds 8 bytes")
+	ErrShortID = xerrors.New("xreality: shortId exceeds 8 bytes")
 	// ErrBadSession is returned when a SessionID is not the expected length.
-	ErrBadSession = errors.New("xreality: session id must be 32 bytes")
+	ErrBadSession = xerrors.New("xreality: session id must be 32 bytes")
 	// ErrAuth is returned when a SessionID fails AEAD verification.
-	ErrAuth = errors.New("xreality: authentication failed")
+	ErrAuth = xerrors.New("xreality: authentication failed")
 )
 
 // GenerateX25519 returns a fresh X25519 key pair. The server's pair is long-lived

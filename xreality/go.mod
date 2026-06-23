@@ -2,7 +2,10 @@ module go.arpabet.com/obfs/xreality
 
 go 1.25.0
 
-require github.com/refraction-networking/utls v1.8.2
+require (
+	github.com/refraction-networking/utls v1.8.2
+	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da
+)
 
 require (
 	github.com/andybalholm/brotli v1.0.6 // indirect

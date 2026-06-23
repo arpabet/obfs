@@ -7,7 +7,6 @@ package obfs
 
 import (
 	"encoding/binary"
-	"errors"
 	"io"
 	"math"
 	"math/rand"
@@ -15,11 +14,13 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"golang.org/x/xerrors"
 )
 
 const hdrSize = 2 // uint16 real-data length prefix inside each cell
 
-var errCorruptCell = errors.New("obfs: corrupt cell (data length exceeds cell size)")
+var errCorruptCell = xerrors.New("obfs: corrupt cell (data length exceeds cell size)")
 
 // shapedConn is a net.Conn that re-frames I/O into fixed-size cells. Each cell is
 // [2-byte big-endian real length n][n data bytes][padding], so every cell is

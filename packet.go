@@ -11,9 +11,10 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
-	"errors"
 	"net"
 	"sync"
+
+	"golang.org/x/xerrors"
 )
 
 // Datagram obfuscation (Salamander-style, after Hysteria2). Each datagram is
@@ -36,9 +37,9 @@ const (
 )
 
 var (
-	errShortPacket = errors.New("obfs: datagram too short to be an obfs frame")
-	errPacketLen   = errors.New("obfs: corrupt datagram (real length exceeds frame)")
-	errPacketBig   = errors.New("obfs: datagram payload too large to frame")
+	errShortPacket = xerrors.New("obfs: datagram too short to be an obfs frame")
+	errPacketLen   = xerrors.New("obfs: corrupt datagram (real length exceeds frame)")
+	errPacketBig   = xerrors.New("obfs: datagram payload too large to frame")
 )
 
 // PacketPolicy configures datagram obfuscation. The zero PacketPolicy (empty Key)
