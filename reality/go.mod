@@ -3,7 +3,7 @@ module go.arpabet.com/obfs/reality
 go 1.25.0
 
 require (
-	go.arpabet.com/obfs/tlscamo v0.2.1
+	go.arpabet.com/obfs/tlscamo v0.3.0
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da
 )
 
